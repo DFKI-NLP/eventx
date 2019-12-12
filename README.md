@@ -1,4 +1,7 @@
-# Event extraction framework
+# Event extraction implementation
+
+Jointly extracts multiple events: event detection and argument extraction for multiple events in one pass
+Loosely based on the paper "Jointly Multiple Events Extraction via Attention-based Graph Information Aggregation" (EMNLP 2018)
 
 ## Getting started
 
