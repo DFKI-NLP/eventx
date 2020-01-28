@@ -56,7 +56,8 @@ class Ace2005ReaderTest(DatasetReaderTest):
         expected_triggers = ["O"] * 27 + ["B-Movement:Transport"] + ["O"] * 15
         assert instance.fields.get('triggers').labels == expected_triggers
 
-        # The cross product of sequence length x number of entities
+        # The cross product of sequence length x number of entities (33 * 14)
+        # sequence length: 27 + 1 + 15
 
         no_event_arg_roles = [NEGATIVE_ARGUMENT_LABEL] * 14  # no-event tokens do not have arguments
         event_arg_roles = [NEGATIVE_ARGUMENT_LABEL] * 7 + [
