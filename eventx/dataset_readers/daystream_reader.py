@@ -2,7 +2,8 @@ import json
 from typing import Iterable, Dict
 
 from allennlp.data import DatasetReader, Instance, Token, TokenIndexer
-from allennlp.data.fields import MetadataField, TextField, LabelField, ListField, SpanField
+from allennlp.data.fields import MetadataField, TextField, LabelField, ListField, SpanField, \
+    SequenceLabelField
 from allennlp.data.token_indexers import SingleIdTokenIndexer
 from overrides import overrides
 
@@ -43,23 +44,22 @@ class DaystreamReader(DatasetReader):
         ])
         dummy_span_list_field = ListField([SpanField(0, 0, text_field)])
 
-        # Extract entities
+        # Extract entity spans
         entities = example['entities']
         entity_ids = [e['id'] for e in entities]
         if len(entities) > 0:
-            entity_labels = []
             entity_spans = []
             for entity in entities:
-                entity_labels.append(LabelField(label=entity['entity_type'],
-                                                label_namespace='entity_labels'))
                 entity_spans.append(SpanField(span_start=entity['start'],
                                               span_end=entity['end'] - 1,
                                               sequence_field=text_field))
-            entity_labels_field = ListField(entity_labels)
             entity_spans_field = ListField(entity_spans)
         else:
-            entity_labels_field = dummy_entity_labels_field.empty_field()
             entity_spans_field = dummy_span_list_field.empty_field()
+
+        entity_tags_field = SequenceLabelField(labels=example['ner_tags'],
+                                               sequence_field=text_field,
+                                               label_namespace='entity_tags')
 
         # Extract triggers
         events = example['events']
@@ -114,7 +114,7 @@ class DaystreamReader(DatasetReader):
         fields = {
             'metadata': MetadataField({"words": words}),
             'tokens': text_field,
-            'entity_labels': entity_labels_field,
+            'entity_tags': entity_tags_field,
             'entity_spans': entity_spans_field,
             'trigger_labels': trigger_labels_field,
             'trigger_spans': trigger_spans_field,

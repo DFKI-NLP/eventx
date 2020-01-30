@@ -37,10 +37,11 @@ class DaystreamReaderTest(DatasetReaderTest):
         def extract_labels(ll):
             return list(map(lambda x: x.label, ll))
 
-        expected_entity_labels = [
-            "TRIGGER", "LOCATION", "LOCATION_CITY", "DATE", "TIME", "TRIGGER"
+        expected_entity_tags = [
+            "B-TRIGGER", "O", "O", "B-LOCATION", "O", "B-LOCATION_CITY",
+            "O", "O", "O", "O", "B-DATE", "B-TIME", "B-TRIGGER", "O", "O"
         ]
-        assert extract_labels(instance.fields.get('entity_labels')) == expected_entity_labels
+        assert instance.fields.get('entity_tags').labels == expected_entity_tags
 
         expected_entity_start_spans = [0, 3, 5, 10, 11, 12]
         expected_entity_end_spans = [0, 3, 5, 10, 11, 12]
@@ -57,8 +58,8 @@ class DaystreamReaderTest(DatasetReaderTest):
         assert extract_spans(instance.fields.get('trigger_spans')) == expected_trigger_spans
 
         # The cross product of "number of triggers" and "number of entities" (2 x 6)
-        num_triggers = len(expected_trigger_labels)
-        num_entities = len(expected_entity_labels)
+        num_triggers = 2
+        num_entities = 6
         expected_arg_roles = []
         for _ in range(num_triggers):
             expected_arg_roles.append([NEGATIVE_ARGUMENT_LABEL] * num_entities)
