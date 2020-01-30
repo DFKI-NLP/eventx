@@ -90,22 +90,19 @@ class DaystreamReader(DatasetReader):
             trigger_labels_field = dummy_trigger_labels_field.empty_field()
             trigger_spans_field = dummy_span_list_field.empty_field()
 
+        # Extract argument role labels
         if len(entities) > 0 and len(triggers) > 0:
             # Initialize the argument roles to be the negative class by default
             arg_roles = [[NEGATIVE_ARGUMENT_LABEL for _ in range(len(entities))]
                          for _ in range(len(triggers))]
-        else:
-            arg_roles = None
 
-        for event in events:
-            assert arg_roles is not None
-            trigger_idx = trigger_ids.index(event['trigger']['id'])
-            for argument in event['arguments']:
-                entity_idx = entity_ids.index(argument['id'])
-                # Set positive event argument roles overwriting the default
-                arg_roles[trigger_idx][entity_idx] = argument['role']
+            for event in events:
+                trigger_idx = trigger_ids.index(event['trigger']['id'])
+                for argument in event['arguments']:
+                    entity_idx = entity_ids.index(argument['id'])
+                    # Set positive event argument roles overwriting the default
+                    arg_roles[trigger_idx][entity_idx] = argument['role']
 
-        if arg_roles:
             arg_roles_field = ListField([
                 ListField([LabelField(label=label, label_namespace='arg_role_labels')
                            for label in token_role_labels])
