@@ -32,7 +32,7 @@ class DaystreamReaderTest(DatasetReaderTest):
         assert instance_tokens == expected_tokens
 
         def extract_spans(ll):
-            return list(map(lambda x: [x.span_start, x.span_end], ll))
+            return list(map(lambda x: (x.span_start, x.span_end), ll))
 
         def extract_labels(ll):
             return list(map(lambda x: x.label, ll))
@@ -43,7 +43,7 @@ class DaystreamReaderTest(DatasetReaderTest):
         assert extract_labels(instance.fields.get('entity_labels')) == expected_entity_labels
 
         expected_entity_start_spans = [0, 3, 5, 10, 11, 12]
-        expected_entity_end_spans = [1, 4, 6, 11, 12, 13]
+        expected_entity_end_spans = [0, 3, 5, 10, 11, 12]
         expected_entity_spans = list(zip(expected_entity_start_spans,
                                          expected_entity_end_spans))
         assert extract_spans(instance.fields.get('entity_spans')) == expected_entity_spans
@@ -52,7 +52,7 @@ class DaystreamReaderTest(DatasetReaderTest):
         assert extract_labels(instance.fields.get('trigger_labels')) == expected_trigger_labels
 
         expected_trigger_spans = [
-            [0, 1], [12, 13]
+            (0, 0), (12, 12)
         ]
         assert extract_spans(instance.fields.get('trigger_spans')) == expected_trigger_spans
 
@@ -64,18 +64,18 @@ class DaystreamReaderTest(DatasetReaderTest):
             expected_arg_roles.append([NEGATIVE_ARGUMENT_LABEL] * num_entities)
 
         # Argument roles of the accident event
-        expected_arg_roles[0][2] = 'location-city'  # Unfall -> Berlin
-        expected_arg_roles[0][1] = 'location'       # Unfall -> Marzahn
-        expected_arg_roles[0][3] = 'start_date'     # Unfall -> 09.02.2016
+        expected_arg_roles[0][2] = 'location'    # Unfall -> Berlin
+        expected_arg_roles[0][1] = 'location'    # Unfall -> Marzahn
+        expected_arg_roles[0][3] = 'start_date'  # Unfall -> 09.02.2016
 
         # Argument roles of the obstruction event
-        expected_arg_roles[1][2] = 'location-city'  # gesperrt -> Berlin
-        expected_arg_roles[1][1] = 'location'       # gesperrt -> Marzahn
-        expected_arg_roles[1][3] = 'start_date'     # gesperrt -> 09.02.2016
+        expected_arg_roles[1][2] = 'location'    # gesperrt -> Berlin
+        expected_arg_roles[1][1] = 'location'    # gesperrt -> Marzahn
+        expected_arg_roles[1][3] = 'start_date'  # gesperrt -> 09.02.2016
 
         instance_arg_roles = [extract_labels(event_arg_roles)
                               for event_arg_roles in instance.fields.get('arg_roles')]
         assert len(instance_arg_roles) == 2  # The example has 2 triggers
         for token_arg_roles in instance_arg_roles:
-            assert len(token_arg_roles) == 14  # Each trigger can have 6 potential arguments
+            assert len(token_arg_roles) == 6  # Each trigger can have 6 potential arguments
         assert instance_arg_roles == expected_arg_roles
