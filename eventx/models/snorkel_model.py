@@ -118,8 +118,9 @@ class SnorkelEventxModel(Model):
             # self.trigger_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
 
             trigger_logits_t = trigger_logits.permute(0, 2, 1)  # TODO still correct?
-            trigger_loss = cross_entropy_with_probs(input=trigger_logits_t,
-                                                    target=trigger_labels)
+            trigger_loss = self._cross_entropy_loss(logits=trigger_logits_t,
+                                                    target=trigger_labels,
+                                                    target_mask=trigger_mask)
 
             output_dict["triggers_loss"] = trigger_loss
             output_dict["loss"] = trigger_loss
@@ -165,7 +166,9 @@ class SnorkelEventxModel(Model):
 
             # Masked batch-wise cross entropy loss, optionally with focal-loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)  # TODO still correct?
-            role_loss = cross_entropy_with_probs(input=role_logits_t, target=target)
+            role_loss = self._cross_entropy_loss(logits=role_logits_t,
+                                                 target=target,
+                                                 target_mask=target_mask)
 
             output_dict['role_loss'] = role_loss
             output_dict['loss'] += self.loss_weight * role_loss
