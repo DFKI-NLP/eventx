@@ -3,12 +3,13 @@ from typing import Iterable, Dict
 
 import numpy as np
 from allennlp.data import DatasetReader, Instance, Token, TokenIndexer
-from allennlp.data.fields import MetadataField, TextField, LabelField, ListField, SpanField, \
+from allennlp.data.fields import MetadataField, TextField, ListField, SpanField, \
     SequenceLabelField, ArrayField
 from allennlp.data.token_indexers import SingleIdTokenIndexer
 from overrides import overrides
 
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL, SD4M_RELATION_TYPES, ROLE_LABELS
+from eventx.util.utils import one_hot_encode
 
 
 @DatasetReader.register('snorkel-reader')
@@ -35,10 +36,10 @@ class SnorkelReader(DatasetReader):
         # These are required by allennlp for empty list fields
         # see: https://github.com/allenai/allennlp/issues/1391
         dummy_arg_roles_field = ListField([ListField([
-            LabelField(label='a', label_namespace='arg_role_labels')
+            ArrayField(array=np.asarray([0.0]*len(SD4M_RELATION_TYPES)))
         ])])
         dummy_trigger_labels_field = ListField([
-            LabelField(label='a', label_namespace='trigger_labels')
+            ArrayField(array=np.asarray([0.0]*len(ROLE_LABELS)))
         ])
         dummy_span_list_field = ListField([SpanField(0, 0, text_field)])
 
@@ -119,15 +120,3 @@ class SnorkelReader(DatasetReader):
             'arg_roles': arg_roles_field,
         }
         return Instance(fields)
-
-
-def one_hot_encode(label, label_names, negative_label='O'):
-    label = label if label in label_names else negative_label
-    class_probs = np.asarray([1.0 if label_name == label else 0.0 for label_name in label_names])
-    return class_probs
-
-
-def one_hot_decode(class_probs, label_names):
-    class_probs_array = np.asarray(class_probs)
-    class_name = label_names[class_probs_array.argmax()]
-    return class_name
