@@ -10,11 +10,11 @@ from allennlp.nn import RegularizerApplicator, InitializerApplicator
 from allennlp.nn.util import get_text_field_mask
 from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
-from snorkel.classification import cross_entropy_with_probs
 from torch.nn import Linear, Parameter
 
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL, SD4M_RELATION_TYPES, ROLE_LABELS
 from eventx.util import MicroFBetaMeasure
+from eventx.util.loss import cross_entropy_with_probs
 
 
 @Model.register('snorkel-eventx-model')
@@ -110,14 +110,16 @@ class SnorkelEventxModel(Model):
 
         if trigger_labels is not None:
             # Compute loss and metrics using the given trigger labels
-
-            trigger_mask = (trigger_labels != torch.tensor([0.0]*len(SD4M_RELATION_TYPES)))
-            trigger_labels = trigger_labels * trigger_mask  # necessary?
+            dummy = torch.tensor([0.0] * len(SD4M_RELATION_TYPES))
+            # TODO find more efficient method to get target mask
+            trigger_mask = torch.tensor([[not array.equal(dummy) for array in batch]
+                                         for batch in trigger_labels])  # B x T
+            trigger_labels = trigger_labels * trigger_mask[..., None]  # B x T x Event Classes
             # decoded_trigger_labels = trigger_labels.argmax(dim=2)
             # self.trigger_accuracy(trigger_logits, decoded_trigger_labels, trigger_mask.float())
             # self.trigger_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
 
-            trigger_logits_t = trigger_logits.permute(0, 2, 1)  # TODO still correct?
+            trigger_logits_t = trigger_logits.permute(0, 2, 1)
             trigger_loss = self._cross_entropy_loss(logits=trigger_logits_t,
                                                     target=trigger_labels,
                                                     target_mask=trigger_mask)
@@ -156,16 +158,20 @@ class SnorkelEventxModel(Model):
 
         # Compute loss and metrics using the given role labels
         if arg_roles is not None:
-            arg_roles = self._assert_target_shape(logits=role_logits, target=arg_roles)
-
-            target_mask = (arg_roles != torch.tensor([0.0]*len(ROLE_LABELS)))
-            target = arg_roles * target_mask  # remove negative indices
+            arg_roles = self._assert_target_shape(logits=role_logits, target=arg_roles,
+                                                  fill_value=0)
+            dummy = torch.tensor([0.0] * len(ROLE_LABELS))
+            # TODO find more efficient method to get target mask
+            target_mask = torch.tensor([[[not array.equal(dummy) for array in trigger]
+                                         for trigger in batch]
+                                        for batch in arg_roles])  # B x T x E
+            target = arg_roles * target_mask[..., None]  # B x T x E x R
             # decoded_target = target.argmax(dim=3)
             # self.role_accuracy(role_logits, decoded_target, target_mask.float())
             # self.role_f1(role_logits, decoded_target, target_mask.float())
 
             # Masked batch-wise cross entropy loss, optionally with focal-loss
-            role_logits_t = role_logits.permute(0, 3, 1, 2)  # TODO still correct?
+            role_logits_t = role_logits.permute(0, 3, 1, 2)
             role_loss = self._cross_entropy_loss(logits=role_logits_t,
                                                  target=target,
                                                  target_mask=target_mask)
@@ -189,39 +195,26 @@ class SnorkelEventxModel(Model):
     #     }
 
     @staticmethod
-    def _assert_target_shape(logits, target):
+    def _assert_target_shape(logits, target, fill_value=0):
         """
         Asserts that target tensors are always of the same size of logits. This is not always
         the case since some batches are not completely filled.
         """
-        expected_shape = logits.shape[:-1]
+        expected_shape = logits.shape
         if target.shape == expected_shape:
             return target
         else:
             new_target = torch.full(size=expected_shape,
-                                    fill_value=-1,
+                                    fill_value=fill_value,
                                     dtype=target.dtype,
                                     device=target.device)
-            batch_size, triggers_len, arguments_len = target.shape
+            batch_size, triggers_len, arguments_len, _ = target.shape
             new_target[:, :triggers_len, :arguments_len] = target
             return new_target
 
     @staticmethod
     def _cross_entropy_loss(logits, target, target_mask) -> torch.Tensor:
-        # TODO adapt loss function
-        # snorkel.classification.loss.cross_entropy_with_probs expects
-        #     input
-        #         A [num_points, num_classes] tensor of logits
-        #     target
-        #         A [num_points, num_classes] tensor of probabilistic target labels
-        #
-        # but we have:
-        # Batch size x Number of triggers x Number of trigger classes
-        # Batch size x Number of triggers x Number of entities x Number of argument role classes
-        #
-        # also: are the permutations of the logits still valid?
-
-        loss_unreduced = cross_entropy_with_probs(logits, target)
+        loss_unreduced = cross_entropy_with_probs(logits, target, reduction="none")
         masked_loss = loss_unreduced * target_mask
         batch_size = target.size(0)
         loss_per_batch = masked_loss.view(batch_size, -1).sum(dim=1)
