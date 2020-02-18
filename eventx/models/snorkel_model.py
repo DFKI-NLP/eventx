@@ -114,6 +114,8 @@ class SnorkelEventxModel(Model):
             trigger_mask = torch.tensor([[not array.equal(dummy) for array in batch]
                                          for batch in trigger_labels],
                                         device=trigger_labels.device)  # B x T
+            # TODO probably not necessary since the dummy fields for trigger labels and argument
+            #  roles already are tensors containing only zeros
             trigger_labels = trigger_labels * trigger_mask[..., None]  # B x T x Event Classes
             decoded_trigger_labels = trigger_labels.argmax(dim=2)
             self.trigger_accuracy(trigger_logits, decoded_trigger_labels, trigger_mask.float())
@@ -167,6 +169,8 @@ class SnorkelEventxModel(Model):
                                          for trigger in batch]
                                         for batch in arg_roles],
                                        device=arg_roles.device)  # B x T x E
+            # TODO probably not necessary since the dummy fields for trigger labels and argument
+            #  roles already are tensors containing only zeros
             target = arg_roles * target_mask[..., None]  # B x T x E x R
             decoded_target = target.argmax(dim=3)
             self.role_accuracy(role_logits, decoded_target, target_mask.float())
