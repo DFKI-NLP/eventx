@@ -1,7 +1,8 @@
 import json
-from typing import Iterable, Dict
+import io
 
 import numpy as np
+from typing import Iterable, Dict
 from allennlp.data import DatasetReader, Instance, Token, TokenIndexer
 from allennlp.data.fields import MetadataField, TextField, ListField, SpanField, \
     SequenceLabelField, ArrayField
@@ -22,7 +23,7 @@ class SnorkelReader(DatasetReader):
 
     @overrides
     def _read(self, file_path: str) -> Iterable[Instance]:
-        with open(file_path) as f:
+        with io.open(file_path, 'r', encoding='utf-8') as f:
             for line in f.readlines():
                 example = json.loads(line)
                 yield self.text_to_instance(example)
