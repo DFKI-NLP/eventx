@@ -108,10 +108,12 @@ class SnorkelEventxModel(Model):
 
         if trigger_labels is not None:
             # Compute loss and metrics using the given trigger labels
-            dummy = torch.tensor([0.0] * len(SD4M_RELATION_TYPES))
+            dummy = torch.tensor([0.0] * len(SD4M_RELATION_TYPES),
+                                 dtype=trigger_labels.dtype, device=trigger_labels.device)
             # TODO find more efficient method to get target mask
             trigger_mask = torch.tensor([[not array.equal(dummy) for array in batch]
-                                         for batch in trigger_labels])  # B x T
+                                         for batch in trigger_labels],
+                                        device=trigger_labels.device)  # B x T
             trigger_labels = trigger_labels * trigger_mask[..., None]  # B x T x Event Classes
             decoded_trigger_labels = trigger_labels.argmax(dim=2)
             self.trigger_accuracy(trigger_logits, decoded_trigger_labels, trigger_mask.float())
@@ -158,11 +160,13 @@ class SnorkelEventxModel(Model):
         if arg_roles is not None:
             arg_roles = self._assert_target_shape(logits=role_logits, target=arg_roles,
                                                   fill_value=0)
-            dummy = torch.tensor([0.0] * len(ROLE_LABELS))
+            dummy = torch.tensor([0.0] * len(ROLE_LABELS),
+                                 dtype=arg_roles.dtype, device=arg_roles.device)
             # TODO find more efficient method to get target mask
             target_mask = torch.tensor([[[not array.equal(dummy) for array in trigger]
                                          for trigger in batch]
-                                        for batch in arg_roles])  # B x T x E
+                                        for batch in arg_roles],
+                                       device=arg_roles.device)  # B x T x E
             target = arg_roles * target_mask[..., None]  # B x T x E x R
             decoded_target = target.argmax(dim=3)
             self.role_accuracy(role_logits, decoded_target, target_mask.float())
