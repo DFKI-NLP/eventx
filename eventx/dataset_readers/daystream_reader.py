@@ -63,7 +63,7 @@ class DaystreamReader(DatasetReader):
 
         # Extract triggers
         events = example['events']
-        triggers = [e for e in entities if e['entity_type'] == 'TRIGGER']
+        triggers = [e for e in entities if e['entity_type'] == 'trigger']
         trigger_ids = [t['id'] for t in triggers]
 
         if len(triggers) > 0:
