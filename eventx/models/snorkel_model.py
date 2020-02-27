@@ -51,16 +51,13 @@ class SnorkelEventxModel(Model):
         self.hidden_to_roles = Linear(self.hidden_dim,
                                       self.num_role_classes)
         self.trigger_accuracy = CategoricalAccuracy()
-        # TODO check whether this works
-        # trigger_labels_to_idx = self.vocab.
-        # get_token_to_index_vocabulary(namespace=triggers_namespace)
+
         trigger_labels_to_idx = dict([(label, idx) for idx, label in enumerate(SD4M_RELATION_TYPES)])
         evaluated_trigger_idxs = list(trigger_labels_to_idx.values())
         evaluated_trigger_idxs.remove(trigger_labels_to_idx[NEGATIVE_TRIGGER_LABEL])
         self.trigger_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                             labels=evaluated_trigger_idxs)
-        # TODO check whether this works
-        # role_labels_to_idx = self.vocab.get_token_to_index_vocabulary(namespace=roles_namespace)
+
         role_labels_to_idx = dict([(label, idx) for idx, label in enumerate(ROLE_LABELS)])
         evaluated_role_idxs = list(role_labels_to_idx.values())
         evaluated_role_idxs.remove(role_labels_to_idx[NEGATIVE_ARGUMENT_LABEL])
@@ -108,15 +105,9 @@ class SnorkelEventxModel(Model):
 
         if trigger_labels is not None:
             # Compute loss and metrics using the given trigger labels
-            dummy = torch.tensor([0.0] * len(SD4M_RELATION_TYPES),
-                                 dtype=trigger_labels.dtype, device=trigger_labels.device)
-            # TODO find more efficient method to get target mask
-            trigger_mask = torch.tensor([[not array.equal(dummy) for array in batch]
-                                         for batch in trigger_labels],
-                                        device=trigger_labels.device)  # B x T
-            # TODO probably not necessary since the dummy fields for trigger labels and argument
-            #  roles already are tensors containing only zeros
-            trigger_labels = trigger_labels * trigger_mask[..., None]  # B x T x Event Classes
+            # Trigger class probabilities should sum up to one, but to be on the safe side
+            # do > 0 to get boolean array
+            trigger_mask = trigger_labels.sum(dim=2) > 0  # B x T
             decoded_trigger_labels = trigger_labels.argmax(dim=2)
             self.trigger_accuracy(trigger_logits, decoded_trigger_labels, trigger_mask.float())
             self.trigger_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
@@ -162,24 +153,17 @@ class SnorkelEventxModel(Model):
         if arg_roles is not None:
             arg_roles = self._assert_target_shape(logits=role_logits, target=arg_roles,
                                                   fill_value=0)
-            dummy = torch.tensor([0.0] * len(ROLE_LABELS),
-                                 dtype=arg_roles.dtype, device=arg_roles.device)
-            # TODO find more efficient method to get target mask
-            target_mask = torch.tensor([[[not array.equal(dummy) for array in trigger]
-                                         for trigger in batch]
-                                        for batch in arg_roles],
-                                       device=arg_roles.device)  # B x T x E
-            # TODO probably not necessary since the dummy fields for trigger labels and argument
-            #  roles already are tensors containing only zeros
-            target = arg_roles * target_mask[..., None]  # B x T x E x R
-            decoded_target = target.argmax(dim=3)
+            # Arg role class probabilities should sum up to one, but to be on the safe side
+            # do > 0 to get boolean array
+            target_mask = arg_roles.sum(dim=3) > 0  # B x T x E
+            decoded_target = arg_roles.argmax(dim=3)
             self.role_accuracy(role_logits, decoded_target, target_mask.float())
             self.role_f1(role_logits, decoded_target, target_mask.float())
 
             # Masked batch-wise cross entropy loss, optionally with focal-loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)
             role_loss = self._cross_entropy_loss(logits=role_logits_t,
-                                                 target=target,
+                                                 target=arg_roles,
                                                  target_mask=target_mask)
 
             output_dict['role_loss'] = role_loss
