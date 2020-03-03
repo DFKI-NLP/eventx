@@ -1,14 +1,16 @@
-local token_emb_dim = 50;
-local entity_emb_dim = 30;
-local encoder_hidden_dim = 50;
+local entity_emb_dim = 50;
+local encoder_hidden_dim = 300;
 
 {
   "dataset_reader": {
     "type": "daystream-reader",
     "token_indexers": {
       "tokens": {
-        "type": "single_id",
-        "lowercase_tokens": true,
+        "type": "bert-pretrained",
+        "pretrained_model": "https://int-deepset-models-bert.s3.eu-central-1.amazonaws.com/pytorch/bert-base-german-cased-vocab.txt",
+        "do_lowercase": false,
+        "use_starting_offsets": true,
+        "truncate_long_sequences": false,
       },
     },
   },
@@ -21,12 +23,15 @@ local encoder_hidden_dim = 50;
 //    "trigger_gamma": 3,
 //    "role_gamma": 3,
     "text_field_embedder": {
+      "allow_unmatched_keys": true,
+      "embedder_to_indexer_map": {
+        "tokens": ["tokens", "tokens-offsets"],
+        "ner_tokens": ["ner_tokens"],
+      },
       "token_embedders": {
         "tokens": {
-          "type": "embedding",
-          "embedding_dim": token_emb_dim,
-//          "pretrained_file": "/home/marc/Downloads/vectors.txt",
-          "trainable": true,
+          "type": "bert-pretrained",
+          "pretrained_model": "https://int-deepset-models-bert.s3.eu-central-1.amazonaws.com/pytorch/bert-base-german-cased.tar.gz",
         },
       },
     },
@@ -38,7 +43,7 @@ local encoder_hidden_dim = 50;
     },
     "encoder": {
       "type": "lstm",
-      "input_size": token_emb_dim + entity_emb_dim,
+      "input_size": 768 + entity_emb_dim,
       "hidden_size": encoder_hidden_dim,
       "num_layers": 2,
       "bidirectional": true,
