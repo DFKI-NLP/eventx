@@ -23,7 +23,11 @@ class DaystreamReader(DatasetReader):
         with open(file_path) as f:
             for line in f.readlines():
                 example = json.loads(line)
-                yield self.text_to_instance(example)
+                instance = self.text_to_instance(example)
+                if instance is not None:
+                    yield instance
+                else:
+                    continue
 
     @overrides
     def text_to_instance(self, example: Dict) -> Instance:
@@ -64,6 +68,11 @@ class DaystreamReader(DatasetReader):
         # Extract triggers
         events = example['events']
         triggers = [e for e in entities if e['entity_type'] == 'trigger']
+
+        # If no triggers are found the model can not learn anything from this instance, so skip it
+        if len(triggers) == 0:
+            return None
+
         trigger_ids = [t['id'] for t in triggers]
 
         if len(triggers) > 0:
