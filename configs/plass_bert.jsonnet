@@ -54,18 +54,20 @@ local encoder_hidden_dim = 300;
     }
   },
   "iterator": {
-    "type": "basic",
-    "batch_size": 16,
+    "type": "bucket",
+    "batch_size": 32,
+    "sorting_keys": [["tokens", "num_tokens"]],
   },
   "trainer": {
     "optimizer": {
       "type": "adam",
-      "lr": 1e-3,
+      "lr": 0.0022260678803619886,
     },
-    "patience": 10,
-    "cuda_device": std.parseInt(std.extVar("ALLENNLP_DEVICE")),
+    "num_serialized_models_to_keep": 1,
+    "patience": 20,
     "validation_metric": "+role_f1",
     "num_epochs": 100,
     "grad_clipping": 5.0,
+    "cuda_device": 0,
   },
 }

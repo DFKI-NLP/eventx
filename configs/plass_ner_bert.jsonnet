@@ -48,8 +48,9 @@
   "trainer": {
     "optimizer": {
       "type": "adam",
-      "lr": 1e-3,
+      "lr": 0.006582531117172192,
     },
+    "num_serialized_models_to_keep": 1,
     "patience": 20,
     "validation_metric": "+f1-measure-overall",
     "num_epochs": 100,
