@@ -4,7 +4,7 @@ from allennlp.common.util import ensure_list
 from allennlp.tests.data.dataset_readers.dataset_reader_test import DatasetReaderTest
 
 from eventx import NEGATIVE_ARGUMENT_LABEL
-from eventx.dataset_readers.daystream_reader import DaystreamReader
+from eventx.dataset_readers.smartdata_eventx_reader import DaystreamReader
 
 
 class DaystreamReaderTest(DatasetReaderTest):

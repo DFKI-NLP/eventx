@@ -12,7 +12,7 @@ local encoder_hidden_dim = 50;
   "pytorch_seed": SEED,
   "random_seed": SEED,
   "dataset_reader": {
-    "type": "daystream-reader",
+    "type": "smartdata-eventx-reader",
     "token_indexers": {
       "tokens": {
         "type": "single_id",

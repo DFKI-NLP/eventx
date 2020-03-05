@@ -1,3 +1,3 @@
 from eventx.dataset_readers.ace2005_reader import Ace2005Reader
-from eventx.dataset_readers.daystream_reader import DaystreamReader
+from eventx.dataset_readers.smartdata_eventx_reader import DaystreamReader
 from eventx.dataset_readers.smartdata_ner_reader import SmartdataNerReader

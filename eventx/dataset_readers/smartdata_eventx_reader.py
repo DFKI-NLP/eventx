@@ -10,7 +10,7 @@ from overrides import overrides
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 
-@DatasetReader.register('daystream-reader')
+@DatasetReader.register('smartdata-eventx-reader')
 class DaystreamReader(DatasetReader):
     def __init__(self,
                  lazy: bool = False,

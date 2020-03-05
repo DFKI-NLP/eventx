@@ -4,7 +4,7 @@ local encoder_hidden_dim = 200;
 
 {
   "dataset_reader": {
-    "type": "daystream-reader",
+    "type": "smartdata-eventx-reader",
     "token_indexers": {
       "tokens": {
         "type": "single_id",
