@@ -18,7 +18,7 @@ class DaystreamReaderTest(DatasetReaderTest):
         """Tests parsing the sample file"""
         reader = DaystreamReader()
         instances = ensure_list(reader._read('tests/fixtures/daystream_sample_data.jsonl'))
-        assert len(instances) == 5
+        assert len(instances) == 2
         instance = instances[0]
 
         expected_tokens = [
