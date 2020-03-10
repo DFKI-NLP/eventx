@@ -23,7 +23,7 @@ local encoder_hidden_dim = 50;
   "train_data_path": "/home/huebner/smartdata-corpus-v3.0-20200206-tmp/train/train_sdw_with_events.jsonl",
   "validation_data_path": "/home/huebner/smartdata-corpus-v3.0-20200206-tmp/dev/dev_sdw_with_events.jsonl",
   "model": {
-    "type": "daystream-eventx-model",
+    "type": "smartdata-eventx-model",
     "hidden_dim": encoder_hidden_dim,
     "loss_weight": loss_weight,
 //    "trigger_gamma": 0.5,

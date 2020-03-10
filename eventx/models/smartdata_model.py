@@ -16,8 +16,8 @@ from eventx.util import MicroFBetaMeasure
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 
-@Model.register('daystream-eventx-model')
-class DaystreamEventxModel(Model):
+@Model.register('smartdata-eventx-model')
+class SmartdataEventxModel(Model):
 
     def __init__(self,
                  vocab: Vocabulary,

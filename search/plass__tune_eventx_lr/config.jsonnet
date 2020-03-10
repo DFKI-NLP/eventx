@@ -24,7 +24,7 @@ local encoder_hidden_dim = 300;
   "test_data_path": "/home/huebner/code/eventx/data/smartdata-sdw-events/test.jsonl",
   "evaluate_on_test": true,
   "model": {
-    "type": "daystream-eventx-model",
+    "type": "smartdata-eventx-model",
     "hidden_dim": encoder_hidden_dim,
 //    "loss_weight": 5.0,
 //    "trigger_gamma": 3,

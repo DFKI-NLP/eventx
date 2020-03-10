@@ -15,7 +15,7 @@ local encoder_hidden_dim = 50;
   "train_data_path": "data/daystream/train.jsonl",
   "validation_data_path": "data/daystream/dev.jsonl",
   "model": {
-    "type": "daystream-eventx-model",
+    "type": "smartdata-eventx-model",
     "hidden_dim": encoder_hidden_dim,
     "loss_weight": 0.1,
     "trigger_gamma": 0.5,
