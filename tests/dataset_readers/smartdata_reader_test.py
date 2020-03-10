@@ -4,7 +4,7 @@ from allennlp.common.util import ensure_list
 from allennlp.tests.data.dataset_readers.dataset_reader_test import DatasetReaderTest
 
 from eventx import NEGATIVE_ARGUMENT_LABEL
-from eventx.dataset_readers.smartdata_eventx_reader import DaystreamReader
+from eventx.dataset_readers.smartdata_eventx_reader import SmartdataEventxReader
 
 
 class DaystreamReaderTest(DatasetReaderTest):
@@ -16,7 +16,7 @@ class DaystreamReaderTest(DatasetReaderTest):
     @staticmethod
     def test_read_sample():
         """Tests parsing the sample file"""
-        reader = DaystreamReader()
+        reader = SmartdataEventxReader()
         instances = ensure_list(reader._read('tests/fixtures/daystream_sample_data.jsonl'))
         assert len(instances) == 2
         instance = instances[0]

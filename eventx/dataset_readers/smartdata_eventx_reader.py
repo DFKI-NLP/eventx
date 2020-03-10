@@ -11,7 +11,7 @@ from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 
 @DatasetReader.register('smartdata-eventx-reader')
-class DaystreamReader(DatasetReader):
+class SmartdataEventxReader(DatasetReader):
     def __init__(self,
                  lazy: bool = False,
                  token_indexers: Dict[str, TokenIndexer] = None) -> None:
