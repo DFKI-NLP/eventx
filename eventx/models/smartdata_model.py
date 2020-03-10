@@ -1,5 +1,6 @@
 from typing import Dict, List, Any
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from allennlp.data import Vocabulary
@@ -8,7 +9,7 @@ from allennlp.modules import TextFieldEmbedder, Seq2SeqEncoder, TokenEmbedder
 from allennlp.modules.span_extractors import SpanExtractor
 from allennlp.nn import RegularizerApplicator, InitializerApplicator
 from allennlp.nn.util import get_text_field_mask
-from allennlp.training.metrics import CategoricalAccuracy, SpanBasedF1Measure
+from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 from torch.nn import Linear, Parameter
 
@@ -34,6 +35,8 @@ class SmartdataEventxModel(Model):
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: RegularizerApplicator = None) -> None:
         super().__init__(vocab=vocab, regularizer=regularizer)
+        self._triggers_namespace = triggers_namespace
+        self._roles_namespace = roles_namespace
         self.num_trigger_classes = self.vocab.get_vocab_size(triggers_namespace)
         self.num_role_classes = self.vocab.get_vocab_size(roles_namespace)
         self.hidden_dim = hidden_dim
@@ -97,10 +100,8 @@ class SmartdataEventxModel(Model):
 
         # Add the trigger predictions to the output
         trigger_probabilities = F.softmax(trigger_logits, dim=-1)
-        trigger_predictions = trigger_logits.argmax(dim=-1)
         output_dict = {"trigger_logits": trigger_logits,
-                       "trigger_probabilities": trigger_probabilities,
-                       "trigger_predictions": trigger_predictions}
+                       "trigger_probabilities": trigger_probabilities}
 
         if trigger_labels is not None:
             # Compute loss and metrics using the given trigger labels
@@ -170,6 +171,67 @@ class SmartdataEventxModel(Model):
         # Append the original tokens for visualization
         if metadata is not None:
             output_dict["words"] = [x["words"] for x in metadata]
+
+        # Append the trigger and entity spans to reconstruct the event after prediction
+        output_dict['entity_spans'] = entity_spans
+        output_dict['trigger_spans'] = trigger_spans
+
+        return output_dict
+
+    @overrides
+    def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        trigger_predictions = output_dict['trigger_probabilities'].cpu().data.numpy()
+        trigger_labels = [
+            [self.vocab.get_token_from_index(trigger_idx, namespace=self._triggers_namespace)
+             for trigger_idx in example]
+            for example in np.argmax(trigger_predictions, axis=-1)
+        ]
+        output_dict['trigger_labels'] = trigger_labels
+
+        arg_role_predictions = output_dict['role_logits'].cpu().data.numpy()
+        arg_role_labels = [
+            [[self.vocab.get_token_from_index(role_idx, namespace=self._roles_namespace)
+              for role_idx in event]
+             for event in example]
+            for example in np.argmax(arg_role_predictions, axis=-1)]
+        output_dict['role_labels'] = arg_role_labels
+
+        events = []
+        for batch_idx in range(len(trigger_labels)):
+            words = output_dict['words'][batch_idx]
+            batch_events = []
+            for trigger_idx, trigger_label in enumerate(trigger_labels[batch_idx]):
+                if trigger_label == NEGATIVE_TRIGGER_LABEL:
+                    continue
+                trigger_span = output_dict['trigger_spans'][batch_idx][trigger_idx]
+                trigger_start = trigger_span[0].item()
+                trigger_end = trigger_span[0].item() + 1
+                event = {
+                    'event_type': trigger_label,
+                    'trigger': {
+                        'text': " ".join(words[trigger_start:trigger_end]),
+                        'start': trigger_start,
+                        'end': trigger_end
+                    },
+                    'arguments': []
+                }
+                for entity_idx, role_label in enumerate(arg_role_labels[batch_idx][trigger_idx]):
+                    if role_label == NEGATIVE_ARGUMENT_LABEL:
+                        continue
+                    arg_span = output_dict['entity_spans'][batch_idx][entity_idx]
+                    arg_start = arg_span[0].item()
+                    arg_end = arg_span[0].item() + 1
+                    argument = {
+                        'text': " ".join(words[arg_start:arg_end]),
+                        'start': arg_start,
+                        'end': arg_end,
+                        'role': role_label
+                    }
+                    event['arguments'].append(argument)
+                if len(event['arguments']) > 0:
+                    batch_events.append(event)
+            events.append(batch_events)
+        output_dict['events'] = events
 
         return output_dict
 
