@@ -1,0 +1,1 @@
+from eventx.predictors.smartdata_predictor import SmartdataEventxPredictor
