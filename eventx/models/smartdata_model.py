@@ -220,7 +220,7 @@ class SmartdataEventxModel(Model):
                         continue
                     arg_span = output_dict['entity_spans'][batch_idx][entity_idx]
                     arg_start = arg_span[0].item()
-                    arg_end = arg_span[0].item() + 1
+                    arg_end = arg_span[1].item() + 1
                     argument = {
                         'text': " ".join(words[arg_start:arg_end]),
                         'start': arg_start,
