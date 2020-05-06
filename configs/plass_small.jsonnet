@@ -12,14 +12,14 @@ local encoder_hidden_dim = 50;
       },
     },
   },
-  "train_data_path": "data/daystream/train.jsonl",
-  "validation_data_path": "data/daystream/dev.jsonl",
+  "train_data_path": "data/smartdata-sdw-events/train.jsonl",
+  "validation_data_path": "data/smartdata-sdw-events/dev.jsonl",
   "model": {
     "type": "smartdata-eventx-model",
     "hidden_dim": encoder_hidden_dim,
-    "loss_weight": 0.1,
-    "trigger_gamma": 0.5,
-    "role_gamma": 0.5,
+//    "loss_weight": 5.0,
+//    "trigger_gamma": 3,
+//    "role_gamma": 3,
     "text_field_embedder": {
       "token_embedders": {
         "tokens": {
@@ -50,7 +50,7 @@ local encoder_hidden_dim = 50;
   },
   "iterator": {
     "type": "basic",
-    "batch_size": 20,
+    "batch_size": 16,
   },
   "trainer": {
     "optimizer": {
@@ -59,7 +59,7 @@ local encoder_hidden_dim = 50;
     },
     "patience": 10,
     "cuda_device": std.parseInt(std.extVar("ALLENNLP_DEVICE")),
-    "validation_metric": "-loss",
+    "validation_metric": "+role_f1",
     "num_epochs": 100,
     "grad_clipping": 5.0,
   },

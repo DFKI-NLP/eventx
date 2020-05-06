@@ -9,4 +9,5 @@ ROLE_LABELS = ['location', 'delay', 'direction',
                'jam_length', 'route', NEGATIVE_ARGUMENT_LABEL]
 from eventx.dataset_readers import *
 from eventx.models import *
+from eventx.predictors import *
 from eventx.util import *

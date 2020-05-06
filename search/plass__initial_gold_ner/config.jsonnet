@@ -1,8 +1,16 @@
+
+local SEED = std.parseInt(std.extVar("ALLENNLP_SEED"));
+local learning_rate = std.extVar("LEARNING_RATE");
+local loss_weight = std.extVar("LOSS_WEIGHT");
+
 local token_emb_dim = 50;
 local entity_emb_dim = 30;
 local encoder_hidden_dim = 50;
 
 {
+  "numpy_seed": SEED,
+  "pytorch_seed": SEED,
+  "random_seed": SEED,
   "dataset_reader": {
     "type": "smartdata-eventx-reader",
     "token_indexers": {
@@ -12,14 +20,14 @@ local encoder_hidden_dim = 50;
       },
     },
   },
-  "train_data_path": "data/daystream/train.jsonl",
-  "validation_data_path": "data/daystream/dev.jsonl",
+  "train_data_path": "/home/huebner/smartdata-corpus-v3.0-20200206-tmp/train/train_sdw_with_events.jsonl",
+  "validation_data_path": "/home/huebner/smartdata-corpus-v3.0-20200206-tmp/dev/dev_sdw_with_events.jsonl",
   "model": {
     "type": "smartdata-eventx-model",
     "hidden_dim": encoder_hidden_dim,
-    "loss_weight": 0.1,
-    "trigger_gamma": 0.5,
-    "role_gamma": 0.5,
+    "loss_weight": loss_weight,
+//    "trigger_gamma": 0.5,
+//    "role_gamma": 0.5,
     "text_field_embedder": {
       "token_embedders": {
         "tokens": {
@@ -55,10 +63,10 @@ local encoder_hidden_dim = 50;
   "trainer": {
     "optimizer": {
       "type": "adam",
-      "lr": 1e-3,
+      "lr": learning_rate,
     },
     "patience": 10,
-    "cuda_device": std.parseInt(std.extVar("ALLENNLP_DEVICE")),
+    "cuda_device": 0,
     "validation_metric": "-loss",
     "num_epochs": 100,
     "grad_clipping": 5.0,

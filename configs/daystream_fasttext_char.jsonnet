@@ -1,6 +1,6 @@
-local token_emb_dim = 50;
-local entity_emb_dim = 30;
-local encoder_hidden_dim = 50;
+local token_emb_dim = 300;
+local entity_emb_dim = 50;
+local encoder_hidden_dim = 200;
 
 {
   "dataset_reader": {
@@ -25,8 +25,9 @@ local encoder_hidden_dim = 50;
         "tokens": {
           "type": "embedding",
           "embedding_dim": token_emb_dim,
-//          "pretrained_file": "/home/marc/Downloads/vectors.txt",
-          "trainable": true,
+//          "pretrained_file": "https://dl.fbaipublicfiles.com/fasttext/vectors-crawl/cc.de.300.vec.gz",
+          "pretrained_file": "https://dl.fbaipublicfiles.com/arrival/vectors/wiki.multi.de.vec",
+          "trainable": false,
         },
       },
     },

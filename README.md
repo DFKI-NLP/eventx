@@ -3,7 +3,7 @@
 Jointly extracts multiple events: event detection and argument extraction for multiple events in one pass
 Loosely based on the paper "Jointly Multiple Events Extraction via Attention-based Graph Information Aggregation" (EMNLP 2018)
 
-## Getting started
+## Getting started on ACE 2005
 
 ### Create and activate a conda environment
     conda create -n eventx python=3.7
