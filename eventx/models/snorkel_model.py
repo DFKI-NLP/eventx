@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Union
 
 import torch
 import torch.nn.functional as F
@@ -52,11 +52,14 @@ class SnorkelEventxModel(Model):
                                       self.num_role_classes)
         self.trigger_accuracy = CategoricalAccuracy()
 
-        trigger_labels_to_idx = dict([(label, idx) for idx, label in enumerate(SD4M_RELATION_TYPES)])
+        trigger_labels_to_idx = dict(
+            [(label, idx) for idx, label in enumerate(SD4M_RELATION_TYPES)])
         evaluated_trigger_idxs = list(trigger_labels_to_idx.values())
         evaluated_trigger_idxs.remove(trigger_labels_to_idx[NEGATIVE_TRIGGER_LABEL])
         self.trigger_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                             labels=evaluated_trigger_idxs)
+        # self.trigger_classes_f1 = MicroFBetaMeasure(average=None,
+        #                                             labels=evaluated_trigger_idxs)
 
         role_labels_to_idx = dict([(label, idx) for idx, label in enumerate(ROLE_LABELS)])
         evaluated_role_idxs = list(role_labels_to_idx.values())
@@ -64,6 +67,8 @@ class SnorkelEventxModel(Model):
         self.role_accuracy = CategoricalAccuracy()
         self.role_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                          labels=evaluated_role_idxs)
+        # self.role_classes_f1 = MicroFBetaMeasure(average=None,
+        #                                          labels=evaluated_role_idxs)
         initializer(self)
 
     @overrides
@@ -98,19 +103,20 @@ class SnorkelEventxModel(Model):
 
         # Add the trigger predictions to the output
         trigger_probabilities = F.softmax(trigger_logits, dim=-1)
-        trigger_predictions = trigger_logits.argmax(dim=-1)
+        # trigger_predictions = trigger_logits.argmax(dim=-1)
         output_dict = {"trigger_logits": trigger_logits,
-                       "trigger_probabilities": trigger_probabilities,
-                       "trigger_predictions": trigger_predictions}
+                       "trigger_probabilities": trigger_probabilities}
 
         if trigger_labels is not None:
             # Compute loss and metrics using the given trigger labels
-            # Trigger class probabilities should sum up to one, but to be on the safe side
-            # do > 0 to get boolean array
+            # Trigger mask filters out padding (and abstained instances from snorkel labeling)
             trigger_mask = trigger_labels.sum(dim=2) > 0  # B x T
+            # Trigger class probabilities to label
             decoded_trigger_labels = trigger_labels.argmax(dim=2)
+
             self.trigger_accuracy(trigger_logits, decoded_trigger_labels, trigger_mask.float())
             self.trigger_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
+            # self.trigger_classes_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
 
             trigger_logits_t = trigger_logits.permute(0, 2, 1)
             trigger_loss = self._cross_entropy_loss(logits=trigger_logits_t,
@@ -146,6 +152,7 @@ class SnorkelEventxModel(Model):
 
         # Add the role predictions to the output
         role_probabilities = torch.softmax(role_logits, dim=-1)
+        # role_predictions = role_logits.argmax(dim=-1)
         output_dict['role_logits'] = role_logits
         output_dict['role_probabilities'] = role_probabilities
 
@@ -153,14 +160,16 @@ class SnorkelEventxModel(Model):
         if arg_roles is not None:
             arg_roles = self._assert_target_shape(logits=role_logits, target=arg_roles,
                                                   fill_value=0)
-            # Arg role class probabilities should sum up to one, but to be on the safe side
-            # do > 0 to get boolean array
+
             target_mask = arg_roles.sum(dim=3) > 0  # B x T x E
+            # Trigger class probabilities to label
             decoded_target = arg_roles.argmax(dim=3)
+
             self.role_accuracy(role_logits, decoded_target, target_mask.float())
             self.role_f1(role_logits, decoded_target, target_mask.float())
+            # self.role_classes_f1(role_logits, decoded_target, target_mask.float())
 
-            # Masked batch-wise cross entropy loss, optionally with focal-loss
+            # Masked batch-wise cross entropy loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)
             role_loss = self._cross_entropy_loss(logits=role_logits_t,
                                                  target=arg_roles,
@@ -176,13 +185,50 @@ class SnorkelEventxModel(Model):
         return output_dict
 
     @overrides
+    def decode(self, output_dict: Dict[str, Union[torch.Tensor, List]]) -> Dict[str, torch.Tensor]:
+        # Currently does not do much.
+        # Maybe use argmax to return proper labels instead of probabilities?
+        trigger_probabilities = output_dict['trigger_probabilities']
+        event_triggers = []
+        for batch_idx in range(trigger_probabilities.shape[0]):
+            batch_event_triggers = []
+            for trigger_idx, trigger_probability in enumerate(trigger_probabilities[batch_idx]):
+                event_trigger = {
+                    'event_type_probs': trigger_probability,
+                }
+                batch_event_triggers.append(event_trigger)
+            event_triggers.append(batch_event_triggers)
+        output_dict['event_triggers'] = event_triggers
+
+        role_probabilities = output_dict['role_probabilities']
+        event_roles = []
+        for batch_idx in range(role_probabilities.shape[0]):
+            batch_event_roles = []
+            for role_idx, role_probability in enumerate(role_probabilities[batch_idx]):
+                event_role = {
+                    'event_argument_probs': role_probability,
+                }
+                batch_event_roles.append(event_role)
+            event_roles.append(batch_event_roles)
+        output_dict['event_roles'] = event_roles
+
+        return output_dict
+
+    @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        return {
+        metrics_to_return = {
             'trigger_acc': self.trigger_accuracy.get_metric(reset=reset),
             'trigger_f1': self.trigger_f1.get_metric(reset=reset)['fscore'],
             'role_acc': self.role_accuracy.get_metric(reset=reset),
             'role_f1': self.role_f1.get_metric(reset=reset)['fscore']
         }
+        # trigger_classes_f1 = self.trigger_classes_f1.get_metric(reset=reset)['fscore']
+        # role_classes_f1 = self.role_classes_f1.get_metric(reset=reset)['fscore']
+        # for trigger_class, class_f1 in zip(SD4M_RELATION_TYPES[:-1], trigger_classes_f1):
+        #     metrics_to_return[trigger_class + '_f1'] = class_f1
+        # for role_class, class_f1 in zip(ROLE_LABELS[:-1], role_classes_f1):
+        #     metrics_to_return[role_class + '_f1'] = class_f1
+        return metrics_to_return
 
     @staticmethod
     def _assert_target_shape(logits, target, fill_value=0):
