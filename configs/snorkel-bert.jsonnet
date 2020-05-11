@@ -1,6 +1,6 @@
 local token_emb_dim = 768;
-local entity_emb_dim = 30;
-local encoder_hidden_dim = 50;
+local entity_emb_dim = 50;
+local encoder_hidden_dim = 300;
 
 {
   "dataset_reader": {
