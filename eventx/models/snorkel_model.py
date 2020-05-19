@@ -1,5 +1,6 @@
 from typing import Dict, List, Any, Union
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from allennlp.data import Vocabulary
@@ -182,35 +183,68 @@ class SnorkelEventxModel(Model):
         if metadata is not None:
             output_dict["words"] = [x["words"] for x in metadata]
 
+        # Append the trigger and entity spans to reconstruct the event after prediction
+        output_dict['entity_spans'] = entity_spans
+        output_dict['trigger_spans'] = trigger_spans
+
         return output_dict
 
     @overrides
     def decode(self, output_dict: Dict[str, Union[torch.Tensor, List]]) -> Dict[str, torch.Tensor]:
-        # Currently does not do much.
-        # Maybe use argmax to return proper labels instead of probabilities?
-        trigger_probabilities = output_dict['trigger_probabilities']
-        event_triggers = []
-        for batch_idx in range(trigger_probabilities.shape[0]):
-            batch_event_triggers = []
-            for trigger_idx, trigger_probability in enumerate(trigger_probabilities[batch_idx]):
-                event_trigger = {
-                    'event_type_probs': trigger_probability,
-                }
-                batch_event_triggers.append(event_trigger)
-            event_triggers.append(batch_event_triggers)
-        output_dict['event_triggers'] = event_triggers
+        trigger_predictions = output_dict['trigger_probabilities'].cpu().data.numpy()
+        trigger_labels = [
+            [SD4M_RELATION_TYPES[trigger_idx]
+             for trigger_idx in example]
+            for example in np.argmax(trigger_predictions, axis=-1)
+        ]
+        output_dict['trigger_labels'] = trigger_labels
 
-        role_probabilities = output_dict['role_probabilities']
-        event_roles = []
-        for batch_idx in range(role_probabilities.shape[0]):
-            batch_event_roles = []
-            for role_idx, role_probability in enumerate(role_probabilities[batch_idx]):
-                event_role = {
-                    'event_argument_probs': role_probability,
+        arg_role_predictions = output_dict['role_logits'].cpu().data.numpy()
+        arg_role_labels = [
+            [[ROLE_LABELS[role_idx]
+              for role_idx in event]
+             for event in example]
+            for example in np.argmax(arg_role_predictions, axis=-1)]
+        output_dict['role_labels'] = arg_role_labels
+
+        events = []
+        for batch_idx in range(len(trigger_labels)):
+            words = output_dict['words'][batch_idx]
+            batch_events = []
+            for trigger_idx, trigger_label in enumerate(trigger_labels[batch_idx]):
+                if trigger_label == NEGATIVE_TRIGGER_LABEL:
+                    continue
+                trigger_span = output_dict['trigger_spans'][batch_idx][trigger_idx]
+                trigger_start = trigger_span[0].item()
+                trigger_end = trigger_span[0].item() + 1
+                event = {
+                    'event_type': trigger_label,
+                    'trigger': {
+                        'text': " ".join(words[trigger_start:trigger_end]),
+                        'start': trigger_start,
+                        'end': trigger_end
+                        # TODO add entity type
+                    },
+                    'arguments': []
                 }
-                batch_event_roles.append(event_role)
-            event_roles.append(batch_event_roles)
-        output_dict['event_roles'] = event_roles
+                for entity_idx, role_label in enumerate(arg_role_labels[batch_idx][trigger_idx]):
+                    if role_label == NEGATIVE_ARGUMENT_LABEL:
+                        continue
+                    arg_span = output_dict['entity_spans'][batch_idx][entity_idx]
+                    arg_start = arg_span[0].item()
+                    arg_end = arg_span[1].item() + 1
+                    argument = {
+                        'text': " ".join(words[arg_start:arg_end]),
+                        'start': arg_start,
+                        'end': arg_end,
+                        # TODO add entity type
+                        'role': role_label
+                    }
+                    event['arguments'].append(argument)
+                if len(event['arguments']) > 0:
+                    batch_events.append(event)
+            events.append(batch_events)
+        output_dict['events'] = events
 
         return output_dict
 
