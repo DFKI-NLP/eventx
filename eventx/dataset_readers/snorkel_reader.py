@@ -52,17 +52,11 @@ class SnorkelReader(DatasetReader):
                     if trigger_id in trigger_id_to_label:
                         trigger_label = trigger_id_to_label[trigger_id]
                     else:
-                        # TODO: every trigger should be labeled in the data, use ignore instead
-                        # ABSTAIN instances that are filtered out, are set to negative class
-                        # instead they should be ignored or there might be false labels
-                        # If they are kept, they have equal probabilities for every class
-                        # mark and ignore them during metrics calculation
                         trigger_label = one_hot_encode(NEGATIVE_TRIGGER_LABEL, SD4M_RELATION_TYPES)
                     trigger_labels.append(trigger_label)
 
                 # Extract argument role labels
                 # Initialize the argument roles to be the negative class by default
-                # TODO: same as event triggers, mark ABSTAINs and ignore during metrics calculation
                 arg_role_labels = [[one_hot_encode(NEGATIVE_ARGUMENT_LABEL, ROLE_LABELS)
                                     for _ in range(len(entity_spans))]
                                    for _ in range(len(trigger_spans))]
@@ -78,7 +72,8 @@ class SnorkelReader(DatasetReader):
                                             entity_spans=entity_spans,
                                             trigger_spans=trigger_spans,
                                             trigger_labels=trigger_labels,
-                                            arg_role_labels=arg_role_labels)
+                                            arg_role_labels=arg_role_labels,
+                                            doc_id=example['id'])
 
     @overrides
     def text_to_instance(self,
@@ -87,7 +82,8 @@ class SnorkelReader(DatasetReader):
                          entity_spans: List[Tuple[int, int]],
                          trigger_spans: List[Tuple[int, int]],
                          trigger_labels: Optional[List[np.ndarray]] = None,
-                         arg_role_labels: Optional[List[List[np.ndarray]]] = None
+                         arg_role_labels: Optional[List[List[np.ndarray]]] = None,
+                         doc_id: Optional[str] = None
                          ) -> Instance:
         assert len(trigger_spans) > 0, 'Examples without triggers are not supported'
 
@@ -105,12 +101,18 @@ class SnorkelReader(DatasetReader):
         ])
 
         fields: Dict[str, Field] = {
-            'metadata': MetadataField({"words": tokens}),
             'tokens': text_field,
             'entity_tags': entity_tags_field,
             'entity_spans': entity_spans_field,
             'trigger_spans': trigger_spans_field,
         }
+
+        # Optionally add document id: only necessary because the dataset reader ignores
+        # documents without triggers which potentially leads to unexpected behavior
+        if doc_id is not None:
+            fields['metadata'] = MetadataField({"words": tokens, "id": doc_id})
+        else:
+            fields['metadata'] = MetadataField({"words": tokens})
 
         # Optionally add trigger labels
         if trigger_labels is not None:
