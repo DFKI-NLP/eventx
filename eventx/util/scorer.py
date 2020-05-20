@@ -31,16 +31,17 @@ class Result:
             return 0.0
 
 
-def argument_equals(pred_arg, gold_arg):
-    if pred_arg['role'] != gold_arg['role']:
-        return False
-    if pred_arg == gold_arg:
+def entity_equals(a, b):
+    if a == b:
         return True
-    if 'id' in pred_arg and 'id' in gold_arg and pred_arg['id'] == gold_arg['id']:
+    if 'id' in a and 'id' in b and a['id'] == b['id']:
         return True
-    if pred_arg['start'] != gold_arg['start'] or pred_arg['end'] != gold_arg['end']:
+    if a['start'] != b['start'] or a['end'] != b['end']:
         return False
-    return pred_arg['entity_type'] == gold_arg['entity_type']
+    if 'entity_type' in a and 'entity_type' in b and a['entity_type'] != b['entity_type']:
+        return False
+    # Check text: predicted entity text is roughly reconstructed from tokens
+    return True
 
 
 def get_event_span(event):
@@ -61,19 +62,21 @@ def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False):
         return True
     if pred_event['event_type'] != gold_event['event_type']:
         return False
+    if not entity_equals(pred_event['trigger'], gold_event['trigger']):
+        return False
     if not ignore_span:
         pred_event_start, pred_event_end = get_event_span(pred_event)
         gold_event_start, gold_event_end = get_event_span(gold_event)
         if pred_event_start != gold_event_start or pred_event_end != gold_event_end:
             return False
-    # TODO Add checks for trigger (trigger used to be treated like arguments in ReSCorer)
     if not ignore_args:
         if len(pred_event['arguments']) != len(gold_event['arguments']):
             return False
         for gold_arg in gold_event['arguments']:
             found_arg = False
             # TODO Add option to only check required arg, i.e. location
-            if any(argument_equals(gold_arg, pred_arg) for pred_arg in pred_event['arguments']):
+            if any(gold_arg['role'] != pred_arg['role'] and entity_equals(gold_arg, pred_arg)
+                   for pred_arg in pred_event['arguments']):
                 found_arg = True
             if not found_arg:
                 return False
@@ -85,7 +88,8 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
         return True
     if subsumed_event['event_type'] != subsuming_event['event_type']:
         return False
-    # TODO Add checks for trigger (trigger used to be treated like arguments in ReSCorer)
+    if not entity_equals(subsumed_event['trigger'], subsuming_event['trigger']):
+        return False
     if not ignore_span:
         subsumed_event_start, subsumed_event_end = get_event_span(subsumed_event)
         subsuming_event_start, subsuming_event_end = get_event_span(subsuming_event)
@@ -97,7 +101,7 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
         for subsumed_arg in subsumed_event['arguments']:
             found_arg = False
             # TODO Add option to only check required arg, i.e. location
-            if any(argument_equals(subsuming_arg, subsumed_arg) for subsuming_arg in
+            if any(entity_equals(subsuming_arg, subsumed_arg) for subsuming_arg in
                    subsuming_event['arguments']):
                 found_arg = True
             if not found_arg:
@@ -105,12 +109,14 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
     return True
 
 
-def event_scorer(pred_events, gold_events,
+def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
                  allow_subsumption=False, keep_event_matches=False) -> Tuple[int, int, int]:
     """
     Counts true positives, false positives and false negatives.
     :param pred_events: Predicted events
     :param gold_events: Gold events
+    :param ignore_args: Ignore event arguments during comparison
+    :param ignore_span: Ignore event span during comparison
     :param allow_subsumption: Allows for a gold event to subsume a predicted event and vice versa
     :param keep_event_matches: Keeps predicted events that were matched with gold events
     :return: TP, FP, FN
@@ -128,10 +134,12 @@ def event_scorer(pred_events, gold_events,
     for gold_event in gold_events_copy:
         found_idx = -1
         for idx, pred_event in enumerate(pred_events_copy):
-            if event_equals(pred_event, gold_event) or \
+            if event_equals(pred_event, gold_event, ignore_args) or \
                 (allow_subsumption and
-                 (event_subsumes(subsumed_event=pred_event, subsuming_event=gold_event) or
-                  event_subsumes(subsumed_event=gold_event, subsuming_event=pred_event))):
+                 (event_subsumes(subsumed_event=pred_event, subsuming_event=gold_event,
+                                 ignore_args=ignore_args, ignore_span=ignore_span) or
+                  event_subsumes(subsumed_event=gold_event, subsuming_event=pred_event,
+                                 ignore_args=ignore_args, ignore_span=ignore_span))):
                 tp += 1
                 found_idx = idx
         if found_idx < 0:
@@ -147,7 +155,7 @@ def event_scorer(pred_events, gold_events,
     return tp, fp, fn
 
 
-def event_by_class_scorer(pred_events, gold_events,
+def event_by_class_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
                           allow_subsumption=False, keep_event_matches=False) -> Dict[str, Result]:
     results: Dict[str, Result] = {}
     event_types = list(set([event['event_type'] for event in pred_events]))
@@ -155,25 +163,33 @@ def event_by_class_scorer(pred_events, gold_events,
     for event_type in event_types:
         class_pred_events = [event for event in pred_events if event['event_type'] == event_type]
         class_gold_events = [event for event in gold_events if event['event_type'] == event_type]
-        result: Tuple[int, int, int] = event_scorer(class_pred_events, class_gold_events,
-                                                    allow_subsumption, keep_event_matches)
+        result: Tuple[int, int, int] = event_scorer(
+            class_pred_events, class_gold_events,
+            ignore_args=ignore_args, ignore_span=ignore_span,
+            allow_subsumption=allow_subsumption, keep_event_matches=keep_event_matches)
         results[event_type] = Result(*result)
     return results
 
 
-def score_document(pred_doc, gold_doc, allow_subsumption=False):
-    results = event_by_class_scorer(pred_doc['events'], gold_doc['events'], allow_subsumption)
+def score_document(pred_doc, gold_doc, ignore_args=False, ignore_span=False,
+                   allow_subsumption=False, keep_event_matches=False):
+    results = event_by_class_scorer(pred_doc['events'], gold_doc['events'],
+                                    ignore_args=ignore_args, ignore_span=ignore_span,
+                                    allow_subsumption=allow_subsumption,
+                                    keep_event_matches=keep_event_matches)
     return results
 
 
-def score_events_batch(pred_events_batch, gold_events_batch,
+def score_events_batch(pred_events_batch, gold_events_batch, ignore_args=False, ignore_span=False,
                        allow_subsumption=False, keep_event_matches=False):
     results: Dict[str, Result] = {}
     # TODO probably not a good idea to do it all in memory
     for pred_doc_events, gold_doc_events in zip(pred_events_batch,
                                                 list(gold_events_batch)):
         doc_results = event_by_class_scorer(pred_doc_events, gold_doc_events,
-                                            allow_subsumption, keep_event_matches)
+                                            ignore_args=ignore_args, ignore_span=ignore_span,
+                                            allow_subsumption=allow_subsumption,
+                                            keep_event_matches=keep_event_matches)
         for event_type, result in doc_results.items():
             if event_type in results:
                 results[event_type].tp += result.tp
@@ -187,15 +203,23 @@ def score_events_batch(pred_events_batch, gold_events_batch,
         print(f'{event_type}: {formatted_results}')
 
 
-def score_documents(pred_docs, gold_docs, allow_subsumption=False, keep_event_matches=False):
+def score_documents(pred_docs, gold_docs, ignore_args=False, ignore_span=False,
+                    allow_subsumption=False, keep_event_matches=False):
     pred_events_batch = pred_docs['events']
     gold_events_batch = gold_docs['events']
 
-    score_events_batch(pred_events_batch, gold_events_batch, allow_subsumption, keep_event_matches)
+    score_events_batch(pred_events_batch, gold_events_batch,
+                       ignore_args=ignore_args, ignore_span=ignore_span,
+                       allow_subsumption=allow_subsumption,
+                       keep_event_matches=keep_event_matches
+                       )
 
 
-def score_files(pred_file_path, gold_file_path, allow_subsumption=False, keep_event_matches=False):
+def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=False,
+                allow_subsumption=False, keep_event_matches=False):
     pred_file = pd.read_json(pred_file_path, lines=True, encoding='utf8')
     gold_file = pd.read_json(gold_file_path, lines=True, encoding='utf8')
 
-    score_documents(pred_file, gold_file, allow_subsumption, keep_event_matches)
+    score_documents(pred_file, gold_file, ignore_args=ignore_args, ignore_span=ignore_span,
+                    allow_subsumption=allow_subsumption,
+                    keep_event_matches=keep_event_matches)
