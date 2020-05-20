@@ -57,7 +57,8 @@ def get_event_span(event):
     return start, end
 
 
-def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False):
+def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False,
+                 ignore_optional_args=False):
     if pred_event == gold_event:
         return True
     if pred_event['event_type'] != gold_event['event_type']:
@@ -72,9 +73,12 @@ def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False):
     if not ignore_args:
         if len(pred_event['arguments']) != len(gold_event['arguments']):
             return False
-        for gold_arg in gold_event['arguments']:
+        if ignore_optional_args:
+            gold_args = [arg for arg in gold_event['arguments'] if arg['role'] == 'location']
+        else:
+            gold_args = gold_event['arguments']
+        for gold_arg in gold_args:
             found_arg = False
-            # TODO Add option to only check required arg, i.e. location
             if any(gold_arg['role'] != pred_arg['role'] and entity_equals(gold_arg, pred_arg)
                    for pred_arg in pred_event['arguments']):
                 found_arg = True
@@ -83,7 +87,8 @@ def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False):
     return True
 
 
-def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_args=False):
+def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_args=False,
+                   ignore_optional_args=False):
     if subsumed_event == subsuming_event:
         return True
     if subsumed_event['event_type'] != subsuming_event['event_type']:
@@ -98,9 +103,13 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
     if not ignore_args:
         if len(subsumed_event['arguments']) > len(subsuming_event['arguments']):
             return False
-        for subsumed_arg in subsumed_event['arguments']:
+        if ignore_optional_args:
+            subsumed_args = [arg for arg in subsumed_event['arguments']
+                             if arg['role'] == 'location']
+        else:
+            subsumed_args = subsumed_event['arguments']
+        for subsumed_arg in subsumed_args:
             found_arg = False
-            # TODO Add option to only check required arg, i.e. location
             if any(entity_equals(subsuming_arg, subsumed_arg) for subsuming_arg in
                    subsuming_event['arguments']):
                 found_arg = True
@@ -110,13 +119,15 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
 
 
 def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
-                 allow_subsumption=False, keep_event_matches=False) -> Tuple[int, int, int]:
+                 allow_subsumption=False, keep_event_matches=False,
+                 ignore_optional_args=False) -> Tuple[int, int, int]:
     """
     Counts true positives, false positives and false negatives.
     :param pred_events: Predicted events
     :param gold_events: Gold events
     :param ignore_args: Ignore event arguments during comparison
     :param ignore_span: Ignore event span during comparison
+    :param ignore_optional_args: Only look at required arguments for comparison, i.e. location arg
     :param allow_subsumption: Allows for a gold event to subsume a predicted event and vice versa
     :param keep_event_matches: Keeps predicted events that were matched with gold events
     :return: TP, FP, FN
@@ -134,12 +145,16 @@ def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
     for gold_event in gold_events_copy:
         found_idx = -1
         for idx, pred_event in enumerate(pred_events_copy):
-            if event_equals(pred_event, gold_event, ignore_args) or \
+            if event_equals(pred_event, gold_event,
+                            ignore_args=ignore_args, ignore_span=ignore_span,
+                            ignore_optional_args=ignore_optional_args) or \
                 (allow_subsumption and
                  (event_subsumes(subsumed_event=pred_event, subsuming_event=gold_event,
-                                 ignore_args=ignore_args, ignore_span=ignore_span) or
+                                 ignore_args=ignore_args, ignore_span=ignore_span,
+                                 ignore_optional_args=ignore_optional_args) or
                   event_subsumes(subsumed_event=gold_event, subsuming_event=pred_event,
-                                 ignore_args=ignore_args, ignore_span=ignore_span))):
+                                 ignore_args=ignore_args, ignore_span=ignore_span,
+                                 ignore_optional_args=ignore_optional_args))):
                 tp += 1
                 found_idx = idx
         if found_idx < 0:
@@ -156,7 +171,8 @@ def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
 
 
 def event_by_class_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
-                          allow_subsumption=False, keep_event_matches=False) -> Dict[str, Result]:
+                          allow_subsumption=False, keep_event_matches=False,
+                          ignore_optional_args=False) -> Dict[str, Result]:
     results: Dict[str, Result] = {}
     event_types = list(set([event['event_type'] for event in pred_events]))
     event_types += list(set([event['event_type'] for event in gold_events]))
@@ -166,22 +182,27 @@ def event_by_class_scorer(pred_events, gold_events, ignore_args=False, ignore_sp
         result: Tuple[int, int, int] = event_scorer(
             class_pred_events, class_gold_events,
             ignore_args=ignore_args, ignore_span=ignore_span,
-            allow_subsumption=allow_subsumption, keep_event_matches=keep_event_matches)
+            allow_subsumption=allow_subsumption, keep_event_matches=keep_event_matches,
+            ignore_optional_args=ignore_optional_args)
         results[event_type] = Result(*result)
     return results
 
 
 def score_document(pred_doc, gold_doc, ignore_args=False, ignore_span=False,
-                   allow_subsumption=False, keep_event_matches=False):
+                   allow_subsumption=False, keep_event_matches=False,
+                   ignore_optional_args=False):
     results = event_by_class_scorer(pred_doc['events'], gold_doc['events'],
                                     ignore_args=ignore_args, ignore_span=ignore_span,
                                     allow_subsumption=allow_subsumption,
-                                    keep_event_matches=keep_event_matches)
+                                    keep_event_matches=keep_event_matches,
+                                    ignore_optional_args=ignore_optional_args)
     return results
 
 
-def score_events_batch(pred_events_batch, gold_events_batch, ignore_args=False, ignore_span=False,
-                       allow_subsumption=False, keep_event_matches=False):
+def score_events_batch(pred_events_batch, gold_events_batch,
+                       ignore_args=False, ignore_span=False,
+                       allow_subsumption=False, keep_event_matches=False,
+                       ignore_optional_args=False):
     results: Dict[str, Result] = {}
     # TODO probably not a good idea to do it all in memory
     for pred_doc_events, gold_doc_events in zip(pred_events_batch,
@@ -189,7 +210,8 @@ def score_events_batch(pred_events_batch, gold_events_batch, ignore_args=False, 
         doc_results = event_by_class_scorer(pred_doc_events, gold_doc_events,
                                             ignore_args=ignore_args, ignore_span=ignore_span,
                                             allow_subsumption=allow_subsumption,
-                                            keep_event_matches=keep_event_matches)
+                                            keep_event_matches=keep_event_matches,
+                                            ignore_optional_args=ignore_optional_args)
         for event_type, result in doc_results.items():
             if event_type in results:
                 results[event_type].tp += result.tp
@@ -204,22 +226,26 @@ def score_events_batch(pred_events_batch, gold_events_batch, ignore_args=False, 
 
 
 def score_documents(pred_docs, gold_docs, ignore_args=False, ignore_span=False,
-                    allow_subsumption=False, keep_event_matches=False):
+                    allow_subsumption=False, keep_event_matches=False,
+                    ignore_optional_args=False):
     pred_events_batch = pred_docs['events']
     gold_events_batch = gold_docs['events']
 
     score_events_batch(pred_events_batch, gold_events_batch,
                        ignore_args=ignore_args, ignore_span=ignore_span,
                        allow_subsumption=allow_subsumption,
-                       keep_event_matches=keep_event_matches
+                       keep_event_matches=keep_event_matches,
+                       ignore_optional_args=ignore_optional_args
                        )
 
 
 def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=False,
-                allow_subsumption=False, keep_event_matches=False):
+                allow_subsumption=False, keep_event_matches=False,
+                ignore_optional_args=False):
     pred_file = pd.read_json(pred_file_path, lines=True, encoding='utf8')
     gold_file = pd.read_json(gold_file_path, lines=True, encoding='utf8')
 
     score_documents(pred_file, gold_file, ignore_args=ignore_args, ignore_span=ignore_span,
                     allow_subsumption=allow_subsumption,
-                    keep_event_matches=keep_event_matches)
+                    keep_event_matches=keep_event_matches,
+                    ignore_optional_args=ignore_optional_args)
