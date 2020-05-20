@@ -205,7 +205,7 @@ class SmartdataEventxModel(Model):
                     continue
                 trigger_span = output_dict['trigger_spans'][batch_idx][trigger_idx]
                 trigger_start = trigger_span[0].item()
-                trigger_end = trigger_span[0].item() + 1
+                trigger_end = trigger_span[1].item() + 1
                 event = {
                     'event_type': trigger_label,
                     'trigger': {

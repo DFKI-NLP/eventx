@@ -216,14 +216,13 @@ class SnorkelEventxModel(Model):
                     continue
                 trigger_span = output_dict['trigger_spans'][batch_idx][trigger_idx]
                 trigger_start = trigger_span[0].item()
-                trigger_end = trigger_span[0].item() + 1
+                trigger_end = trigger_span[1].item() + 1
                 event = {
                     'event_type': trigger_label,
                     'trigger': {
                         'text': " ".join(words[trigger_start:trigger_end]),
                         'start': trigger_start,
                         'end': trigger_end
-                        # TODO add entity type
                     },
                     'arguments': []
                 }
@@ -237,7 +236,6 @@ class SnorkelEventxModel(Model):
                         'text': " ".join(words[arg_start:arg_end]),
                         'start': arg_start,
                         'end': arg_end,
-                        # TODO add entity type
                         'role': role_label
                     }
                     event['arguments'].append(argument)
