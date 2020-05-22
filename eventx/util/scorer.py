@@ -1,7 +1,8 @@
 import copy
 import pandas as pd
 import numpy as np
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List, Union
+from allennlp.data import Instance
 
 
 class Result:
@@ -14,13 +15,13 @@ class Result:
         if self.tp + self.fp > 0:
             return self.tp / (self.tp + self.fp)
         else:
-            return 0.0
+            return 1.0
 
     def recall(self):
         if self.tp + self.fn > 0:
             return self.tp / (self.tp + self.fn)
         else:
-            return 0.0
+            return 1.0
 
     def f1(self):
         p = self.precision()
@@ -28,7 +29,7 @@ class Result:
         if p + r > 0:
             return 2 * (p * r) / (p + r)
         else:
-            return 0.0
+            return 1.0
 
 
 def entity_equals(a, b):
@@ -123,14 +124,20 @@ def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
                  ignore_optional_args=False) -> Tuple[int, int, int]:
     """
     Counts true positives, false positives and false negatives.
-    :param pred_events: Predicted events
-    :param gold_events: Gold events
-    :param ignore_args: Ignore event arguments during comparison
-    :param ignore_span: Ignore event span during comparison
-    :param ignore_optional_args: Only look at required arguments for comparison, i.e. location arg
-    :param allow_subsumption: Allows for a gold event to subsume a predicted event and vice versa
-    :param keep_event_matches: Keeps predicted events that were matched with gold events
-    :return: TP, FP, FN
+
+    Parameters
+    ----------
+    pred_events: Predicted events
+    gold_events: Gold events
+    ignore_args: Ignore event arguments during comparison
+    ignore_span: Ignore event span during comparison
+    ignore_optional_args: Only look at required arguments for comparison, i.e. location arg
+    allow_subsumption: Allows for a gold event to subsume a predicted event and vice versa
+    keep_event_matches: Keeps predicted events that were matched with gold events
+
+    Returns
+    -------
+    TP, FP, FN
     """
     pred_events_copy = copy.deepcopy(pred_events) if pred_events else []
     gold_events_copy = copy.deepcopy(gold_events) if gold_events else []
@@ -149,12 +156,9 @@ def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
                             ignore_args=ignore_args, ignore_span=ignore_span,
                             ignore_optional_args=ignore_optional_args) or \
                 (allow_subsumption and
-                 (event_subsumes(subsumed_event=pred_event, subsuming_event=gold_event,
-                                 ignore_args=ignore_args, ignore_span=ignore_span,
-                                 ignore_optional_args=ignore_optional_args) or
-                  event_subsumes(subsumed_event=gold_event, subsuming_event=pred_event,
-                                 ignore_args=ignore_args, ignore_span=ignore_span,
-                                 ignore_optional_args=ignore_optional_args))):
+                 event_subsumes(subsumed_event=pred_event, subsuming_event=gold_event,
+                                ignore_args=ignore_args, ignore_span=ignore_span,
+                                ignore_optional_args=ignore_optional_args)):
                 tp += 1
                 found_idx = idx
         if found_idx < 0:
@@ -249,3 +253,192 @@ def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=F
                     allow_subsumption=allow_subsumption,
                     keep_event_matches=keep_event_matches,
                     ignore_optional_args=ignore_optional_args)
+
+
+def get_triggers(documents: List[Union[Dict, Instance]]):
+    """
+    Retrieves triggers from list of documents
+
+    Parameters
+    ----------
+    documents: List of documents containing events
+
+    Returns
+    -------
+    List of tuples for each trigger containing document index, trigger start, trigger end and
+    trigger type
+
+    """
+    triggers = []
+    for doc_idx, doc in enumerate(documents):
+        for event in doc['events']:
+            trigger = event['trigger']
+            triggers.append((doc_idx, trigger['start'], trigger['end'], event['event_type']))
+    return triggers
+
+
+def get_arguments(documents: List[Union[Dict, Instance]]):
+    """
+    Retrieves arguments from list of documents
+
+    Parameters
+    ----------
+    documents: List of documents containing events
+
+    Returns
+    -------
+    List of tuples for each argument containing document index, trigger start, trigger end,
+    trigger type, argument start, argument end, argument role
+
+    """
+    arguments = []
+    for doc_idx, doc in enumerate(documents):
+        for event in doc['events']:
+            trigger = event['trigger']
+            for arg in event['arguments']:
+                arguments.append((doc_idx,
+                                  trigger['start'], trigger['end'], event['event_type'],
+                                  arg['start'], arg['end'], arg['role']))
+    return arguments
+
+
+def calc_metric(y_true, y_pred):
+    # Copied from:
+    # https://github.com/nlpcl-lab/bert-event-extraction/blob/c35caea08269d6143cb988366c91a664b60b4106/utils.py#L20
+    num_proposed = len(y_pred)
+    num_gold = len(y_true)
+
+    y_true_set = set(y_true)
+    num_correct = 0
+
+    for item in y_pred:
+        if item in y_true_set:
+            num_correct += 1
+
+    precision = num_correct / num_proposed if num_proposed > 0 else 1.0
+    recall = num_correct / num_gold if num_gold > 0 else 1.0
+    f1 = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
+
+    return precision, recall, f1
+
+
+def get_metrics_by_class(y_true: List[Tuple], y_pred: List[Tuple]):
+    """
+    Assumes the label to be the last element of the tuple.
+
+    Parameters
+    ----------
+    y_true: List with examples with gold labels
+    y_pred: List with examples with predicted labels
+
+    Returns
+    -------
+    Dictionary with precision, recall, f1 for every class
+
+    """
+    classes = [item[-1] for item in y_true]
+    classes += [item[-1] for item in y_pred]
+    classes = set(classes)
+
+    metrics_by_class = {}
+
+    for clazz in classes:
+        filtered_y_true = [item for item in y_true if item[-1] == clazz]
+        filtered_y_pred = [item for item in y_pred if item[-1] == clazz]
+        precision, recall, f1 = calc_metric(filtered_y_true, filtered_y_pred)
+        metrics_by_class[clazz] = precision, recall, f1
+
+    return metrics_by_class
+
+
+def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple]):
+    """
+    Gets metrics for trigger identification. A trigger is identified correctly
+    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    if its spans match any of the reference triggers.
+
+    Parameters
+    ----------
+    gold_triggers: Gold triggers with document idx, trigger spans & type
+    pred_triggers: Predicted triggers with document idx, trigger spans & type
+
+    Returns
+    -------
+    Precision, recall and f1 for trigger identification
+
+    """
+    gold_trigger_spans = [(trigger[0], trigger[1], trigger[2]) for trigger in gold_triggers]
+    pred_trigger_spans = [(trigger[0], trigger[1], trigger[2]) for trigger in pred_triggers]
+    return calc_metric(gold_trigger_spans, pred_trigger_spans)
+
+
+def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple],
+                                       accumulated=True):
+    """
+    Gets metrics for trigger identification. A trigger is identified correctly
+    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    if its its event subtype and offsets match those of a reference trigger.
+
+    Parameters
+    ----------
+    accumulated: If set to False calculate metrics separately for each class
+    gold_triggers: Gold triggers with document idx, trigger spans & type
+    pred_triggers: Predicted triggers with document idx, trigger spans & type
+
+    Returns
+    -------
+    Precision, recall and f1 for trigger classification
+
+    """
+    if accumulated:
+        return calc_metric(gold_triggers, pred_triggers)
+    else:
+        return get_metrics_by_class(gold_triggers, pred_triggers)
+
+
+def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple]):
+    """
+    Gets metrics for argument identification. An argument is identified correctly
+    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    if its event subtype and offsets match those of any of the reference argument mentions.
+
+    Parameters
+    ----------
+    gold_arguments: Gold arguments with document idx, trigger spans & type, arg spans & type
+    pred_arguments: Predicted arguments with document idx, trigger spans & type, arg spans & type
+
+    Returns
+    -------
+    Precision, recall and f1 for argument identification
+
+    """
+    gold_argument_spans = [(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5])
+                           for arg in gold_arguments]
+    pred_argument_spans = [(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5])
+                           for arg in pred_arguments]
+    return calc_metric(gold_argument_spans, pred_argument_spans)
+
+
+def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple],
+                                        accumulated=True):
+    """
+    Gets metrics for argument classification. An argument is classified correctly
+    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    if its event subtype, offsets and argument role match those of any of the
+    reference argument mentions.
+
+    Parameters
+    ----------
+    accumulated: If set to False calculate metrics separately for each class
+    gold_arguments: Gold arguments with document idx, trigger spans & type, arg spans & type
+    pred_arguments: Predicted arguments with document idx, trigger spans & type, arg spans & type
+
+    Returns
+    -------
+    Precision, recall and f1 for argument identification
+
+    """
+    if accumulated:
+        return calc_metric(gold_arguments, pred_arguments)
+    else:
+        return get_metrics_by_class(gold_arguments, pred_arguments)
