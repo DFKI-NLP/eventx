@@ -14,7 +14,7 @@ from overrides import overrides
 from torch.nn import Linear, Parameter
 
 from eventx.util import MicroFBetaMeasure
-from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
+from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL, SD4M_RELATION_TYPES, ROLE_LABELS
 
 
 @Model.register('smartdata-eventx-model')
@@ -58,14 +58,21 @@ class SmartdataEventxModel(Model):
         trigger_labels_to_idx = self.vocab.get_token_to_index_vocabulary(namespace=triggers_namespace)
         evaluated_trigger_idxs = list(trigger_labels_to_idx.values())
         evaluated_trigger_idxs.remove(trigger_labels_to_idx[NEGATIVE_TRIGGER_LABEL])
+        self.evaluated_trigger_idxs = evaluated_trigger_idxs
         self.trigger_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                             labels=evaluated_trigger_idxs)
+        self.trigger_classes_f1 = MicroFBetaMeasure(average=None,
+                                                    labels=evaluated_trigger_idxs)
+
         role_labels_to_idx = self.vocab.get_token_to_index_vocabulary(namespace=roles_namespace)
         evaluated_role_idxs = list(role_labels_to_idx.values())
         evaluated_role_idxs.remove(role_labels_to_idx[NEGATIVE_ARGUMENT_LABEL])
+        self.evaluated_role_idxs = evaluated_role_idxs
         self.role_accuracy = CategoricalAccuracy()
         self.role_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                          labels=evaluated_role_idxs)
+        self.role_classes_f1 = MicroFBetaMeasure(average=None,
+                                                 labels=evaluated_role_idxs)
         initializer(self)
 
     @overrides
@@ -109,6 +116,7 @@ class SmartdataEventxModel(Model):
             trigger_labels = trigger_labels * trigger_mask
             self.trigger_accuracy(trigger_logits, trigger_labels, trigger_mask.float())
             self.trigger_f1(trigger_logits, trigger_labels, trigger_mask.float())
+            self.trigger_classes_f1(trigger_logits, trigger_labels, trigger_mask.float())
 
             trigger_logits_t = trigger_logits.permute(0, 2, 1)
             trigger_loss = self._cross_entropy_focal_loss(logits=trigger_logits_t,
@@ -157,6 +165,7 @@ class SmartdataEventxModel(Model):
 
             self.role_accuracy(role_logits, target, target_mask.float())
             self.role_f1(role_logits, target, target_mask.float())
+            self.role_classes_f1(role_logits, target, target_mask.float())
 
             # Masked batch-wise cross entropy loss, optionally with focal-loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)
@@ -237,12 +246,21 @@ class SmartdataEventxModel(Model):
 
     @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        return {
+        metrics_to_return = {
             'trigger_acc': self.trigger_accuracy.get_metric(reset=reset),
             'trigger_f1': self.trigger_f1.get_metric(reset=reset)['fscore'],
             'role_acc': self.role_accuracy.get_metric(reset=reset),
             'role_f1': self.role_f1.get_metric(reset=reset)['fscore']
         }
+        trigger_classes_f1 = self.trigger_classes_f1.get_metric(reset=reset)['fscore']
+        role_classes_f1 = self.role_classes_f1.get_metric(reset=reset)['fscore']
+        for trigger_idx, class_f1 in zip(self.evaluated_trigger_idxs, trigger_classes_f1):
+            metrics_to_return['_' + self.vocab.get_token_from_index(
+                trigger_idx, namespace=self._triggers_namespace) + '_f1'] = class_f1
+        for role_idx, class_f1 in zip(self.evaluated_role_idxs, role_classes_f1):
+            metrics_to_return['_' + self.vocab.get_token_from_index(
+                role_idx, namespace=self._roles_namespace) + '_f1'] = class_f1
+        return metrics_to_return
 
     @staticmethod
     def _assert_target_shape(logits, target):

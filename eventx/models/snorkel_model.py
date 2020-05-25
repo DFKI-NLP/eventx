@@ -59,8 +59,8 @@ class SnorkelEventxModel(Model):
         evaluated_trigger_idxs.remove(trigger_labels_to_idx[NEGATIVE_TRIGGER_LABEL])
         self.trigger_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                             labels=evaluated_trigger_idxs)
-        # self.trigger_classes_f1 = MicroFBetaMeasure(average=None,
-        #                                             labels=evaluated_trigger_idxs)
+        self.trigger_classes_f1 = MicroFBetaMeasure(average=None,
+                                                    labels=evaluated_trigger_idxs)
 
         role_labels_to_idx = dict([(label, idx) for idx, label in enumerate(ROLE_LABELS)])
         evaluated_role_idxs = list(role_labels_to_idx.values())
@@ -68,8 +68,8 @@ class SnorkelEventxModel(Model):
         self.role_accuracy = CategoricalAccuracy()
         self.role_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                          labels=evaluated_role_idxs)
-        # self.role_classes_f1 = MicroFBetaMeasure(average=None,
-        #                                          labels=evaluated_role_idxs)
+        self.role_classes_f1 = MicroFBetaMeasure(average=None,
+                                                 labels=evaluated_role_idxs)
         initializer(self)
 
     @overrides
@@ -117,7 +117,7 @@ class SnorkelEventxModel(Model):
 
             self.trigger_accuracy(trigger_logits, decoded_trigger_labels, trigger_mask.float())
             self.trigger_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
-            # self.trigger_classes_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
+            self.trigger_classes_f1(trigger_logits, decoded_trigger_labels, trigger_mask.float())
 
             trigger_logits_t = trigger_logits.permute(0, 2, 1)
             trigger_loss = self._cross_entropy_loss(logits=trigger_logits_t,
@@ -168,7 +168,7 @@ class SnorkelEventxModel(Model):
 
             self.role_accuracy(role_logits, decoded_target, target_mask.float())
             self.role_f1(role_logits, decoded_target, target_mask.float())
-            # self.role_classes_f1(role_logits, decoded_target, target_mask.float())
+            self.role_classes_f1(role_logits, decoded_target, target_mask.float())
 
             # Masked batch-wise cross entropy loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)
@@ -254,12 +254,12 @@ class SnorkelEventxModel(Model):
             'role_acc': self.role_accuracy.get_metric(reset=reset),
             'role_f1': self.role_f1.get_metric(reset=reset)['fscore']
         }
-        # trigger_classes_f1 = self.trigger_classes_f1.get_metric(reset=reset)['fscore']
-        # role_classes_f1 = self.role_classes_f1.get_metric(reset=reset)['fscore']
-        # for trigger_class, class_f1 in zip(SD4M_RELATION_TYPES[:-1], trigger_classes_f1):
-        #     metrics_to_return[trigger_class + '_f1'] = class_f1
-        # for role_class, class_f1 in zip(ROLE_LABELS[:-1], role_classes_f1):
-        #     metrics_to_return[role_class + '_f1'] = class_f1
+        trigger_classes_f1 = self.trigger_classes_f1.get_metric(reset=reset)['fscore']
+        role_classes_f1 = self.role_classes_f1.get_metric(reset=reset)['fscore']
+        for trigger_class, class_f1 in zip(SD4M_RELATION_TYPES[:-1], trigger_classes_f1):
+            metrics_to_return['_' + trigger_class + '_f1'] = class_f1
+        for role_class, class_f1 in zip(ROLE_LABELS[:-1], role_classes_f1):
+            metrics_to_return['_' + role_class + '_f1'] = class_f1
         return metrics_to_return
 
     @staticmethod
