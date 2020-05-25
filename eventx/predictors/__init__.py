@@ -1,1 +1,2 @@
 from eventx.predictors.smartdata_predictor import SmartdataEventxPredictor
+from eventx.predictors.snorkel_predictor import SnorkelEventxPredictor

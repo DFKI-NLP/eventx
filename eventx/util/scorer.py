@@ -80,7 +80,7 @@ def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False,
             gold_args = gold_event['arguments']
         for gold_arg in gold_args:
             found_arg = False
-            if any(gold_arg['role'] != pred_arg['role'] and entity_equals(gold_arg, pred_arg)
+            if any(gold_arg['role'] == pred_arg['role'] and entity_equals(gold_arg, pred_arg)
                    for pred_arg in pred_event['arguments']):
                 found_arg = True
             if not found_arg:
@@ -111,7 +111,8 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
             subsumed_args = subsumed_event['arguments']
         for subsumed_arg in subsumed_args:
             found_arg = False
-            if any(entity_equals(subsuming_arg, subsumed_arg) for subsuming_arg in
+            if any(subsuming_arg['role'] == subsumed_arg['role'] and
+                   entity_equals(subsuming_arg, subsumed_arg) for subsuming_arg in
                    subsuming_event['arguments']):
                 found_arg = True
             if not found_arg:
@@ -305,11 +306,11 @@ def get_arguments(documents: List[Union[Dict, Instance]]):
 def calc_metric(y_true, y_pred):
     # Copied from:
     # https://github.com/nlpcl-lab/bert-event-extraction/blob/c35caea08269d6143cb988366c91a664b60b4106/utils.py#L20
-    num_proposed = len(y_pred)
-    num_gold = len(y_true)
+    num_proposed = len(y_pred)  # TP + FP
+    num_gold = len(y_true)      # TP + FN
 
     y_true_set = set(y_true)
-    num_correct = 0
+    num_correct = 0             # TP
 
     for item in y_pred:
         if item in y_true_set:
