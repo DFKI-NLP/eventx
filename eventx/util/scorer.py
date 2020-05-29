@@ -11,6 +11,11 @@ class Result:
         self.fp = fp
         self.fn = fn
 
+    def add_counts(self, tp: int = 0, fp: int = 0, fn: int = 0):
+        self.tp += tp
+        self.fp += fp
+        self.fn += fn
+
     def precision(self):
         if self.tp + self.fp > 0:
             return self.tp / (self.tp + self.fp)
@@ -29,7 +34,10 @@ class Result:
         if p + r > 0:
             return 2 * (p * r) / (p + r)
         else:
-            return 1.0
+            return 0.0
+
+    def get_metrics(self):
+        return self.precision(), self.recall(), self.f1()
 
 
 def entity_equals(a, b):
@@ -165,8 +173,8 @@ def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
         if found_idx < 0:
             fn += 1
         else:
-            # pred_event might match multiple gold_events:
-            # Snorkel format merges events sharing the same trigger
+            # pred_event might match multiple gold_events because
+            # Eventx model does not distinguish between events sharing the same trigger
             if keep_event_matches:
                 pred_events_no_match[found_idx] *= 0
             else:
@@ -179,8 +187,8 @@ def event_by_class_scorer(pred_events, gold_events, ignore_args=False, ignore_sp
                           allow_subsumption=False, keep_event_matches=False,
                           ignore_optional_args=False) -> Dict[str, Result]:
     results: Dict[str, Result] = {}
-    event_types = list(set([event['event_type'] for event in pred_events]))
-    event_types += list(set([event['event_type'] for event in gold_events]))
+    event_types = list(set([event['event_type'] for event in pred_events] +
+                           [event['event_type'] for event in gold_events]))
     for event_type in event_types:
         class_pred_events = [event for event in pred_events if event['event_type'] == event_type]
         class_gold_events = [event for event in gold_events if event['event_type'] == event_type]
@@ -208,7 +216,7 @@ def score_events_batch(pred_events_batch, gold_events_batch,
                        ignore_args=False, ignore_span=False,
                        allow_subsumption=False, keep_event_matches=False,
                        ignore_optional_args=False):
-    results: Dict[str, Result] = {}
+    results: Dict[str, Result] = {'accumulated': Result()}
     # TODO probably not a good idea to do it all in memory
     for pred_doc_events, gold_doc_events in zip(pred_events_batch,
                                                 list(gold_events_batch)):
@@ -218,16 +226,13 @@ def score_events_batch(pred_events_batch, gold_events_batch,
                                             keep_event_matches=keep_event_matches,
                                             ignore_optional_args=ignore_optional_args)
         for event_type, result in doc_results.items():
+            results['accumulated'].add_counts(result.tp, result.fp, result.fn)
             if event_type in results:
-                results[event_type].tp += result.tp
-                results[event_type].fp += result.fp
-                results[event_type].fn += result.fn
+                results[event_type].add_counts(result.tp, result.fp, result.fn)
             else:
                 results[event_type] = result
-    for event_type, result in results.items():
-        formatted_results = '\tP={:.3f}\tR={:.3f}\tF1={:.3f}\n' \
-            .format(result.precision(), result.recall(), result.f1())
-        print(f'{event_type}: {formatted_results}')
+
+    return results
 
 
 def score_documents(pred_docs, gold_docs, ignore_args=False, ignore_span=False,
@@ -236,12 +241,12 @@ def score_documents(pred_docs, gold_docs, ignore_args=False, ignore_span=False,
     pred_events_batch = pred_docs['events']
     gold_events_batch = gold_docs['events']
 
-    score_events_batch(pred_events_batch, gold_events_batch,
-                       ignore_args=ignore_args, ignore_span=ignore_span,
-                       allow_subsumption=allow_subsumption,
-                       keep_event_matches=keep_event_matches,
-                       ignore_optional_args=ignore_optional_args
-                       )
+    return score_events_batch(pred_events_batch, gold_events_batch,
+                              ignore_args=ignore_args, ignore_span=ignore_span,
+                              allow_subsumption=allow_subsumption,
+                              keep_event_matches=keep_event_matches,
+                              ignore_optional_args=ignore_optional_args
+                              )
 
 
 def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=False,
@@ -250,10 +255,10 @@ def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=F
     pred_file = pd.read_json(pred_file_path, lines=True, encoding='utf8')
     gold_file = pd.read_json(gold_file_path, lines=True, encoding='utf8')
 
-    score_documents(pred_file, gold_file, ignore_args=ignore_args, ignore_span=ignore_span,
-                    allow_subsumption=allow_subsumption,
-                    keep_event_matches=keep_event_matches,
-                    ignore_optional_args=ignore_optional_args)
+    return score_documents(pred_file, gold_file, ignore_args=ignore_args, ignore_span=ignore_span,
+                           allow_subsumption=allow_subsumption,
+                           keep_event_matches=keep_event_matches,
+                           ignore_optional_args=ignore_optional_args)
 
 
 def get_triggers(documents: List[Union[Dict, Instance]]):
@@ -296,10 +301,11 @@ def get_arguments(documents: List[Union[Dict, Instance]]):
     for doc_idx, doc in enumerate(documents):
         for event in doc['events']:
             trigger = event['trigger']
-            for arg in event['arguments']:
-                arguments.append((doc_idx,
-                                  trigger['start'], trigger['end'], event['event_type'],
-                                  arg['start'], arg['end'], arg['role']))
+            if trigger['start'] >= 0:
+                for arg in event['arguments']:
+                    arguments.append((doc_idx,
+                                      trigger['start'], trigger['end'], event['event_type'],
+                                      arg['start'], arg['end'], arg['role']))
     return arguments
 
 
@@ -307,10 +313,10 @@ def calc_metric(y_true, y_pred):
     # Copied from:
     # https://github.com/nlpcl-lab/bert-event-extraction/blob/c35caea08269d6143cb988366c91a664b60b4106/utils.py#L20
     num_proposed = len(y_pred)  # TP + FP
-    num_gold = len(y_true)      # TP + FN
+    num_gold = len(y_true)  # TP + FN
 
     y_true_set = set(y_true)
-    num_correct = 0             # TP
+    num_correct = 0  # TP
 
     for item in y_pred:
         if item in y_true_set:
@@ -355,7 +361,7 @@ def get_metrics_by_class(y_true: List[Tuple], y_pred: List[Tuple]):
 def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple]):
     """
     Gets metrics for trigger identification. A trigger is identified correctly
-    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
     if its spans match any of the reference triggers.
 
     Parameters
@@ -376,9 +382,9 @@ def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers
 def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple],
                                        accumulated=True):
     """
-    Gets metrics for trigger identification. A trigger is identified correctly
-    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
-    if its its event subtype and offsets match those of a reference trigger.
+    Gets metrics for trigger classification. A trigger is correct
+    according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
+    if its event subtype and offsets match those of a reference trigger.
 
     Parameters
     ----------
@@ -400,7 +406,7 @@ def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers
 def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple]):
     """
     Gets metrics for argument identification. An argument is identified correctly
-    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
     if its event subtype and offsets match those of any of the reference argument mentions.
 
     Parameters
@@ -424,7 +430,7 @@ def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_argume
                                         accumulated=True):
     """
     Gets metrics for argument classification. An argument is classified correctly
-    according to Chen et al. 2015 (https://www.aclweb.org/anthology/P15-1017)
+    according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
     if its event subtype, offsets and argument role match those of any of the
     reference argument mentions.
 
