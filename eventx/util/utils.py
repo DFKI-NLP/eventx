@@ -60,31 +60,31 @@ def snorkel_to_ace_format(doc_list: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return converted_df.to_dict('records')
 
 
-def create_events(row: pd.Series) -> pd.Series:
+def create_events(document):
     """
     Takes a row (document) and creates events in the ACE format using event triggers and
     event arguments.
 
     Parameters
     ----------
-    row: Document containing among others event triggers and event arguments
+    document: Document containing among others event triggers and event arguments
 
     Returns
     -------
     Row (document) with events
     """
     formatted_events = []
-    if 'entities' in row and 'event_triggers' in row and 'event_roles' in row:
+    if 'entities' in document and 'event_triggers' in document and 'event_roles' in document:
         # TODO: save string labels instead of redoing it later on
-        filtered_triggers = [t for t in row['event_triggers']
+        filtered_triggers = [t for t in document['event_triggers']
                              if SD4M_RELATION_TYPES[np.asarray(t['event_type_probs']).argmax()]
                              != NEGATIVE_TRIGGER_LABEL]
-        filtered_roles = [r for r in row['event_roles']
+        filtered_roles = [r for r in document['event_roles']
                           if ROLE_LABELS[np.asarray(r['event_argument_probs']).argmax()]
                           != NEGATIVE_ARGUMENT_LABEL]
 
         for event_trigger in filtered_triggers:
-            trigger_entity = get_entity(event_trigger['id'], row['entities'])
+            trigger_entity = get_entity(event_trigger['id'], document['entities'])
             event_type = SD4M_RELATION_TYPES[np.asarray(event_trigger['event_type_probs']).argmax()]
             formatted_trigger = {
                 'id': trigger_entity['id'],
@@ -96,7 +96,7 @@ def create_events(row: pd.Series) -> pd.Series:
             relevant_args = [arg for arg in filtered_roles if arg['trigger'] == event_trigger['id']]
             formatted_args = []
             for event_arg in relevant_args:
-                event_arg_entity = get_entity(event_arg['argument'], row['entities'])
+                event_arg_entity = get_entity(event_arg['argument'], document['entities'])
                 arg_role = ROLE_LABELS[np.asarray(event_arg['event_argument_probs']).argmax()]
                 formatted_arg = {
                     'id': event_arg_entity['id'],
@@ -113,5 +113,60 @@ def create_events(row: pd.Series) -> pd.Series:
                 'arguments': formatted_args
             }
             formatted_events.append(formatted_event)
-    row['events'] = formatted_events
-    return row
+    document['events'] = formatted_events
+    return document
+
+
+def ace_to_snorkel_format(doc_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Takes list of documents with events in the ACE format and creates
+    events in the Snorkel format with event triggers and event roles.
+
+    Parameters
+    ----------
+    doc_list: List of documents with event triggers and event roles
+
+    Returns
+    -------
+    List of documents with events
+    """
+    df = pd.DataFrame(doc_list)
+    assert 'events' in df
+    converted_df = df.apply(convert_events, axis=1)\
+        .drop(labels=['events'], axis=1)
+    return converted_df.to_dict('records')
+
+
+def convert_events(document):
+    """
+    Takes a document (document) and constructs event triggers and event roles from
+    events in the ACE format.
+
+    Parameters
+    ----------
+    document: Document containing events
+
+    Returns
+    -------
+    Row (document) with event triggers and event roles
+    """
+    event_triggers = []
+    event_roles = []
+    for event in document['events']:
+        event_type = event['event_type']
+        trigger = event['trigger']
+        event_triggers.append({
+            'id': trigger['id'],
+            'event_type_probs': one_hot_encode(event_type, SD4M_RELATION_TYPES,
+                                               NEGATIVE_TRIGGER_LABEL)
+        })
+        for argument in event['arguments']:
+            event_roles.append({
+                'trigger': trigger['id'],
+                'argument': argument['id'],
+                'event_argument_probs': one_hot_encode(argument['role'], ROLE_LABELS,
+                                                       NEGATIVE_ARGUMENT_LABEL)
+            })
+    document['event_triggers'] = event_triggers
+    document['event_roles'] = event_roles
+    return document
