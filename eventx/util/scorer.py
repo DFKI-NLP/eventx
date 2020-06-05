@@ -301,11 +301,10 @@ def get_arguments(documents: List[Union[Dict, Instance]]):
     for doc_idx, doc in enumerate(documents):
         for event in doc['events']:
             trigger = event['trigger']
-            if trigger['start'] >= 0:
-                for arg in event['arguments']:
-                    arguments.append((doc_idx,
-                                      trigger['start'], trigger['end'], event['event_type'],
-                                      arg['start'], arg['end'], arg['role']))
+            for arg in event['arguments']:
+                arguments.append((doc_idx,
+                                  trigger['start'], trigger['end'], event['event_type'],
+                                  arg['start'], arg['end'], arg['role']))
     return arguments
 
 

@@ -104,7 +104,6 @@ class SnorkelEventxModel(Model):
 
         # Add the trigger predictions to the output
         trigger_probabilities = F.softmax(trigger_logits, dim=-1)
-        # trigger_predictions = trigger_logits.argmax(dim=-1)
         output_dict = {"trigger_logits": trigger_logits,
                        "trigger_probabilities": trigger_probabilities}
 
@@ -144,7 +143,7 @@ class SnorkelEventxModel(Model):
 
         # Create the cross-product of triggers and args via broadcasting
         trigger = triggers_hidden.unsqueeze(2)  # B x T x 1 x H
-        args = args_hidden.unsqueeze(1)  # B x T x E x H
+        args = args_hidden.unsqueeze(1)  # B x 1 x E x H
         trigger_arg = trigger + args + self.hidden_bias  # B x T x E x H
 
         # Pass through activation and projection for classification
@@ -153,7 +152,6 @@ class SnorkelEventxModel(Model):
 
         # Add the role predictions to the output
         role_probabilities = torch.softmax(role_logits, dim=-1)
-        # role_predictions = role_logits.argmax(dim=-1)
         output_dict['role_logits'] = role_logits
         output_dict['role_probabilities'] = role_probabilities
 
@@ -218,7 +216,6 @@ class SnorkelEventxModel(Model):
                 trigger_start = trigger_span[0].item()
                 trigger_end = trigger_span[1].item() + 1
                 if trigger_start < 0:
-                    # TODO check whether this is due to padding
                     continue
                 event = {
                     'event_type': trigger_label,
@@ -236,7 +233,6 @@ class SnorkelEventxModel(Model):
                     arg_start = arg_span[0].item()
                     arg_end = arg_span[1].item() + 1
                     if arg_start < 0:
-                        # TODO check whether this is due to padding
                         continue
                     argument = {
                         'text': " ".join(words[arg_start:arg_end]),
