@@ -96,8 +96,7 @@ def event_equals(pred_event, gold_event, ignore_span=False, ignore_args=False,
     return True
 
 
-def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_args=False,
-                   ignore_optional_args=False):
+def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_args=False):
     if subsumed_event == subsuming_event:
         return True
     if subsumed_event['event_type'] != subsuming_event['event_type']:
@@ -112,12 +111,21 @@ def event_subsumes(subsumed_event, subsuming_event, ignore_span=False, ignore_ar
     if not ignore_args:
         if len(subsumed_event['arguments']) > len(subsuming_event['arguments']):
             return False
-        if ignore_optional_args:
-            subsumed_args = [arg for arg in subsumed_event['arguments']
-                             if arg['role'] == 'location']
-        else:
-            subsumed_args = subsumed_event['arguments']
-        for subsumed_arg in subsumed_args:
+        # all required roles should be found, if found optional roles have to be correct
+        required_subsuming_args = [arg for arg in subsuming_event['arguments']
+                                   if arg['role'] == 'location']
+        # Check required args
+        for required_arg in required_subsuming_args:
+            found_arg = False
+            if any(subsumed_arg['role'] == required_arg['role'] and
+                   entity_equals(subsumed_arg, required_arg) for subsumed_arg in
+                   subsumed_event['arguments']):
+                found_arg = True
+            if not found_arg:
+                return False
+
+        # Check for falsely labeled args in subsumed (predicted)
+        for subsumed_arg in subsumed_event['arguments']:
             found_arg = False
             if any(subsuming_arg['role'] == subsumed_arg['role'] and
                    entity_equals(subsuming_arg, subsumed_arg) for subsuming_arg in
@@ -166,8 +174,7 @@ def event_scorer(pred_events, gold_events, ignore_args=False, ignore_span=False,
                             ignore_optional_args=ignore_optional_args) or \
                 (allow_subsumption and
                  event_subsumes(subsumed_event=pred_event, subsuming_event=gold_event,
-                                ignore_args=ignore_args, ignore_span=ignore_span,
-                                ignore_optional_args=ignore_optional_args)):
+                                ignore_args=ignore_args, ignore_span=ignore_span)):
                 tp += 1
                 found_idx = idx
         if found_idx < 0:
