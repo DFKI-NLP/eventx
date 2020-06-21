@@ -45,6 +45,20 @@ def get_docs_tokens_entities_triggers(dataset: pd.DataFrame):
     }
 
 
+def has_triggers(doc):
+    """
+    Parameters
+    ----------
+    doc: Document
+
+    Returns
+    -------
+    Whether the document contains any triggers
+    """
+    entities = doc['entities']
+    return any(entity['entity_type'] == 'trigger' for entity in entities)
+
+
 def has_events(doc, include_negatives=False):
     """
     Parameters
@@ -193,28 +207,20 @@ def get_event_stats(dataset: pd.DataFrame):
     }
 
 
-def get_doc_type(document: pd.Series):
+def add_doc_type(document: pd.Series):
+    doc_type = 'Other'
     if 'docType' in document:
-        return document['docType']
+        return document
     elif is_rss(document['id']):
-        return 'RSS_XML'
+        doc_type = 'RSS_XML'
     elif is_twitter(document['id']):
-        return 'TWITTER_JSON'
-    else:
-        return 'Other'
+        doc_type = 'TWITTER_JSON'
+    document['docType'] = doc_type
+    return document
 
 
-def get_doc_types(dataframe: pd.DataFrame):
-    return dataframe.apply(lambda document: get_doc_type(document), axis=1)
-
-
-def main(args):
-    input_path = Path(args.input_path)
-    assert input_path.exists(), 'Input not found: %s'.format(args.input_path)
-    output_path = Path(args.output_path)
-
-    dataset = pd.read_json(input_path, lines=True, encoding='utf8')
-    dataset['docType'] = get_doc_types(dataset)
+def get_dataset_stats(dataset: pd.DataFrame):
+    dataset = dataset.apply(add_doc_type, axis=1)
     dataset_stats = {'docType': 'MIXED'}
     dataset_stats.update(get_docs_tokens_entities_triggers(dataset))
     dataset_stats.update(get_event_stats(dataset))
@@ -230,6 +236,17 @@ def main(args):
     twitter_stats.update(get_event_stats(twitter_dataset))
 
     stats = pd.DataFrame([dataset_stats, rss_stats, twitter_stats])
+    return stats
+
+
+def main(args):
+    input_path = Path(args.input_path)
+    assert input_path.exists(), 'Input not found: %s'.format(args.input_path)
+    output_path = Path(args.output_path)
+
+    dataset = pd.read_json(input_path, lines=True, encoding='utf8')
+
+    stats = get_dataset_stats(dataset)
     stats.to_json(output_path, orient='records', lines=True, force_ascii=False)
     print(stats.to_json(orient='records', lines=True))
 
