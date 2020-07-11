@@ -3,6 +3,9 @@ local entity_emb_dim = 50;
 local encoder_hidden_dim = 300;
 
 {
+  "random_seed": std.parseInt(std.extVar("SEED")),
+  "pytorch_seed": std.parseInt(std.extVar("PYTORCH_SEED")),
+  "numpy_seed": std.parseInt(std.extVar("NUMPY_SEED")),
   "dataset_reader": {
     "type": "snorkel-reader",
     "token_indexers": {
@@ -15,8 +18,8 @@ local encoder_hidden_dim = 300;
       },
     },
   },
-  "train_data_path": "data/snorkel/train.jsonl",
-  "validation_data_path": "data/snorkel/dev.jsonl",
+  "train_data_path": std.extVar("TRAIN_PATH"),
+  "validation_data_path": std.extVar("DEV_PATH"),
   "model": {
     "type": "snorkel-eventx-model",
     "hidden_dim": encoder_hidden_dim,
@@ -56,19 +59,19 @@ local encoder_hidden_dim = 300;
   },
   "iterator": {
     "type": "bucket",
-    "batch_size": 32,
+    "batch_size": std.parseInt(std.extVar("BATCH_SIZE")),
     "sorting_keys": [["tokens", "num_tokens"]],
   },
   "trainer": {
     "optimizer": {
       "type": "adam",
-      "lr": 1e-3,
+      "lr": std.parseInt(std.extVar("LEARNING_RATE")),
     },
     "num_serialized_models_to_keep": 1,
     "patience": 20,
     "validation_metric": "+role_f1",
-    "num_epochs": 100,
+    "num_epochs": std.parseInt(std.extVar("NUM_EPOCHS")),
     "grad_clipping": 5.0,
-    "cuda_device": 0,
+    "cuda_device": std.parseInt(std.extVar("CUDA_DEVICE")),
   },
 }
