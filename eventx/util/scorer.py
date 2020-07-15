@@ -37,7 +37,12 @@ class Result:
             return 0.0
 
     def get_metrics(self):
-        return self.precision(), self.recall(), self.f1()
+        return {
+            'precision': self.precision(),
+            'recall': self.recall(),
+            'f1-score': self.f1(),
+            'support': self.tp + self.fn
+        }
 
 
 def entity_equals(a, b):
@@ -199,12 +204,12 @@ def event_by_class_scorer(pred_events, gold_events, ignore_args=False, ignore_sp
     for event_type in event_types:
         class_pred_events = [event for event in pred_events if event['event_type'] == event_type]
         class_gold_events = [event for event in gold_events if event['event_type'] == event_type]
-        result: Tuple[int, int, int] = event_scorer(
+        tp, fp, fn = event_scorer(
             class_pred_events, class_gold_events,
             ignore_args=ignore_args, ignore_span=ignore_span,
             allow_subsumption=allow_subsumption, keep_event_matches=keep_event_matches,
             ignore_optional_args=ignore_optional_args)
-        results[event_type] = Result(*result)
+        results[event_type] = Result(tp, fp, fn)
     return results
 
 
@@ -219,41 +224,29 @@ def score_document(pred_doc, gold_doc, ignore_args=False, ignore_span=False,
     return results
 
 
-def score_events_batch(pred_events_batch, gold_events_batch,
-                       ignore_args=False, ignore_span=False,
-                       allow_subsumption=False, keep_event_matches=False,
-                       ignore_optional_args=False):
-    results: Dict[str, Result] = {'accumulated': Result()}
-    # TODO probably not a good idea to do it all in memory
-    for pred_doc_events, gold_doc_events in zip(pred_events_batch,
-                                                list(gold_events_batch)):
+def score_documents(pred_events, gold_events,
+                    ignore_args=False, ignore_span=False,
+                    allow_subsumption=False, keep_event_matches=False,
+                    ignore_optional_args=False):
+    results: Dict[str, Result] = {'micro avg': Result()}
+    for pred_doc_events, gold_doc_events in zip(pred_events,
+                                                list(gold_events)):
         doc_results = event_by_class_scorer(pred_doc_events, gold_doc_events,
                                             ignore_args=ignore_args, ignore_span=ignore_span,
                                             allow_subsumption=allow_subsumption,
                                             keep_event_matches=keep_event_matches,
                                             ignore_optional_args=ignore_optional_args)
         for event_type, result in doc_results.items():
-            results['accumulated'].add_counts(result.tp, result.fp, result.fn)
+            results['micro avg'].add_counts(result.tp, result.fp, result.fn)
             if event_type in results:
                 results[event_type].add_counts(result.tp, result.fp, result.fn)
             else:
                 results[event_type] = result
 
-    return results
-
-
-def score_documents(pred_docs, gold_docs, ignore_args=False, ignore_span=False,
-                    allow_subsumption=False, keep_event_matches=False,
-                    ignore_optional_args=False):
-    pred_events_batch = pred_docs['events']
-    gold_events_batch = gold_docs['events']
-
-    return score_events_batch(pred_events_batch, gold_events_batch,
-                              ignore_args=ignore_args, ignore_span=ignore_span,
-                              allow_subsumption=allow_subsumption,
-                              keep_event_matches=keep_event_matches,
-                              ignore_optional_args=ignore_optional_args
-                              )
+    classification_report = {}
+    for event_type, result in results.items():
+        classification_report[event_type] = result.get_metrics()
+    return classification_report
 
 
 def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=False,
@@ -262,7 +255,10 @@ def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=F
     pred_file = pd.read_json(pred_file_path, lines=True, encoding='utf8')
     gold_file = pd.read_json(gold_file_path, lines=True, encoding='utf8')
 
-    return score_documents(pred_file, gold_file, ignore_args=ignore_args, ignore_span=ignore_span,
+    pred_events = pred_file['events']
+    gold_events = gold_file['events']
+    return score_documents(pred_events, gold_events, ignore_args=ignore_args,
+                           ignore_span=ignore_span,
                            allow_subsumption=allow_subsumption,
                            keep_event_matches=keep_event_matches,
                            ignore_optional_args=ignore_optional_args)
@@ -318,21 +314,26 @@ def get_arguments(documents: List[Union[Dict, Instance]]):
 def calc_metric(y_true, y_pred):
     # Copied from:
     # https://github.com/nlpcl-lab/bert-event-extraction/blob/c35caea08269d6143cb988366c91a664b60b4106/utils.py#L20
-    num_proposed = len(y_pred)  # TP + FP
-    num_gold = len(y_true)  # TP + FN
-
-    y_true_set = set(y_true)
+    y_true_set = set(y_true)  # Remove duplicates due to events sharing the same trigger
+    num_predicted = len(y_pred)  # TP + FP
+    num_gold = len(y_true_set)  # TP + FN
     num_correct = 0  # TP
 
     for item in y_pred:
         if item in y_true_set:
             num_correct += 1
 
-    precision = num_correct / num_proposed if num_proposed > 0 else 1.0
+    precision = num_correct / num_predicted if num_predicted > 0 else 1.0
     recall = num_correct / num_gold if num_gold > 0 else 1.0
     f1 = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
+    support = len(y_true_set)
 
-    return precision, recall, f1
+    return {
+        'precision': precision,
+        'recall': recall,
+        'f1-score': f1,
+        'support': support
+    }
 
 
 def get_metrics_by_class(y_true: List[Tuple], y_pred: List[Tuple]):
@@ -358,8 +359,7 @@ def get_metrics_by_class(y_true: List[Tuple], y_pred: List[Tuple]):
     for clazz in classes:
         filtered_y_true = [item for item in y_true if item[-1] == clazz]
         filtered_y_pred = [item for item in y_pred if item[-1] == clazz]
-        precision, recall, f1 = calc_metric(filtered_y_true, filtered_y_pred)
-        metrics_by_class[clazz] = precision, recall, f1
+        metrics_by_class[clazz] = calc_metric(filtered_y_true, filtered_y_pred)
 
     return metrics_by_class
 
@@ -377,7 +377,7 @@ def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers
 
     Returns
     -------
-    Precision, recall and f1 for trigger identification
+    Precision, recall, f1, support for trigger identification
 
     """
     gold_trigger_spans = [(trigger[0], trigger[1], trigger[2]) for trigger in gold_triggers]
@@ -385,8 +385,7 @@ def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers
     return calc_metric(gold_trigger_spans, pred_trigger_spans)
 
 
-def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple],
-                                       accumulated=True):
+def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple]):
     """
     Gets metrics for trigger classification. A trigger is correct
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -394,19 +393,18 @@ def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers
 
     Parameters
     ----------
-    accumulated: If set to False calculate metrics separately for each class
     gold_triggers: Gold triggers with document idx, trigger spans & type
     pred_triggers: Predicted triggers with document idx, trigger spans & type
 
     Returns
     -------
-    Precision, recall and f1 for trigger classification
+    Precision, recall, f1, support for trigger classification
 
     """
-    if accumulated:
-        return calc_metric(gold_triggers, pred_triggers)
-    else:
-        return get_metrics_by_class(gold_triggers, pred_triggers)
+    micro_avg = calc_metric(gold_triggers, pred_triggers)
+    classification_report = get_metrics_by_class(gold_triggers, pred_triggers)
+    classification_report['micro avg'] = micro_avg
+    return classification_report
 
 
 def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple]):
@@ -422,7 +420,7 @@ def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_argume
 
     Returns
     -------
-    Precision, recall and f1 for argument identification
+    Precision, recall, f1, support for argument identification
 
     """
     gold_argument_spans = [(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5])
@@ -432,8 +430,7 @@ def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_argume
     return calc_metric(gold_argument_spans, pred_argument_spans)
 
 
-def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple],
-                                        accumulated=True):
+def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple]):
     """
     Gets metrics for argument classification. An argument is classified correctly
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -442,16 +439,15 @@ def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_argume
 
     Parameters
     ----------
-    accumulated: If set to False calculate metrics separately for each class
     gold_arguments: Gold arguments with document idx, trigger spans & type, arg spans & type
     pred_arguments: Predicted arguments with document idx, trigger spans & type, arg spans & type
 
     Returns
     -------
-    Precision, recall and f1 for argument identification
+    Precision, recall, f1, support for argument classification
 
     """
-    if accumulated:
-        return calc_metric(gold_arguments, pred_arguments)
-    else:
-        return get_metrics_by_class(gold_arguments, pred_arguments)
+    micro_avg = calc_metric(gold_arguments, pred_arguments)
+    classification_report = get_metrics_by_class(gold_arguments, pred_arguments)
+    classification_report['micro avg'] = micro_avg
+    return classification_report
