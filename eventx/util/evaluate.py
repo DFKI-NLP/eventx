@@ -7,11 +7,13 @@ import sklearn
 from typing import List
 
 import numpy as np
+import pandas as pd
 from pathlib import Path
 
 from allennlp.common import JsonDict
 from eventx.predictors.predictor_utils import load_predictor
 from eventx.models.model_utils import batched_predict_json
+from eventx.util import scorer
 from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -20,10 +22,20 @@ PREDICTOR_NAME = "snorkel-eventx-predictor"
 
 
 def load_test_data(input_path) -> List[JsonDict]:
+    """
+    Filters out documents that do not contain any triggers.
+    Parameters
+    ----------
+    input_path: Path to test file
+
+    Returns
+    -------
+    Filtered document list
+    """
     docs_without_triggers = 0
     docs_with_triggers = 0
     test_documents = []
-    with io.open(input_path) as test_file:
+    with io.open(input_path, encoding='utf8') as test_file:
         for line in test_file.readlines():
             example = json.loads(line)
             if any(e['entity_type'].lower() == 'trigger' for e in example['entities']):
@@ -40,16 +52,19 @@ def load_test_data(input_path) -> List[JsonDict]:
 
 def get_label_arrays(gold_docs, predicted_docs):
     """
-    Construct label arrays in order to use sklearn.metrics
+    Construct label arrays in order to use sklearn.metrics for confusion matrices etc.
+    Keep in mind that these are not in compliance with the correctness criteria by
+    Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf) as we pay no attention
+    to the correctness of the trigger label when constructing the argument role label array.
 
     Parameters
     ----------
-    gold_docs
-    predicted_docs
+    gold_docs: Documents with gold event annotation
+    predicted_docs: Documents with predicted events
 
     Returns
     -------
-    Label arrays for trigger identification, classification, argument identification, classification
+    Label arrays for trigger & argument role classification
     """
     trigger_labels = []
     pred_trigger_labels = []
@@ -93,16 +108,12 @@ def get_label_arrays(gold_docs, predicted_docs):
                                for _ in range(len(trigger_spans))]
         doc_pred_arg_role_labels = copy.deepcopy(doc_arg_role_labels)
 
-        # Construct span->role_label map for predicted events
-        pred_span_to_role_label = {}
         for event in pred_events:
-            trigger_start = event['trigger']['start']
-            trigger_end = event['trigger']['end']
-            trigger_label = event['event_type']
+            trigger_span = event['trigger']['start'], event['trigger']['end']
+            trigger_idx = trigger_spans.index(trigger_span)
             for argument in event['arguments']:
-                key_tuple = trigger_start, trigger_end, trigger_label, \
-                            argument['start'], argument['end']
-                pred_span_to_role_label[key_tuple] = argument['role']
+                entity_idx = entity_spans.index((argument['start'], argument['end']))
+                doc_pred_arg_role_labels[trigger_idx][entity_idx] = argument['role']
 
         for event in events:
             trigger_span = event['trigger']['start'], event['trigger']['end']
@@ -112,12 +123,6 @@ def get_label_arrays(gold_docs, predicted_docs):
                 entity_idx = entity_spans.index((argument['start'], argument['end']))
                 # Set positive event argument roles overwriting the default
                 doc_arg_role_labels[trigger_idx][entity_idx] = argument['role']
-                # Predicted role label
-                key_tuple = event['trigger']['start'], event['trigger']['end'], \
-                    event['event_type'], argument['start'], argument['end']
-                if key_tuple in pred_span_to_role_label:
-                    doc_pred_arg_role_labels[trigger_idx][entity_idx] = \
-                        pred_span_to_role_label[key_tuple]
 
         doc_arg_role_labels = [role_label for args in doc_arg_role_labels for role_label in args]
         doc_pred_arg_role_labels = [role_label for args in doc_pred_arg_role_labels
@@ -125,25 +130,123 @@ def get_label_arrays(gold_docs, predicted_docs):
         arg_role_labels += doc_arg_role_labels
         pred_arg_role_labels += doc_pred_arg_role_labels
 
-    trigger_id_labels = [label if label == NEGATIVE_TRIGGER_LABEL else 'Event Trigger'
-                         for label in trigger_labels]
-    pred_trigger_id_labels = [label if label == NEGATIVE_TRIGGER_LABEL else 'Event Trigger'
-                              for label in pred_trigger_labels]
-    arg_role_id_labels = [label if label == NEGATIVE_ARGUMENT_LABEL else 'Event Argument'
-                          for label in arg_role_labels]
-    pred_arg_role_id_labels = [label if label == NEGATIVE_ARGUMENT_LABEL else 'Event Argument'
-                               for label in pred_arg_role_labels]
-
     return {
-        "trigger_id_y_true": np.asarray(trigger_id_labels),
-        "trigger_id_y_pred": np.asarray(pred_trigger_id_labels),
-        "trigger_class_y_true": np.asarray(trigger_labels),
-        "trigger_class_y_pred": np.asarray(pred_trigger_labels),
-        "arg_role_id_y_true": np.asarray(arg_role_id_labels),
-        "arg_role_id_y_pred": np.asarray(pred_arg_role_id_labels),
-        "arg_role_class_y_true": np.asarray(arg_role_labels),
-        "arg_role_class_y_pred": np.asarray(pred_arg_role_labels)
+        "trigger_y_true": np.asarray(trigger_labels),
+        "trigger_y_pred": np.asarray(pred_trigger_labels),
+        "arg_y_true": np.asarray(arg_role_labels),
+        "arg_y_pred": np.asarray(pred_arg_role_labels)
     }
+
+
+def average_runs(model_paths, test_docs):
+    trigger_id_metrics = []
+    trigger_class_metrics = []
+    argument_id_metrics = []
+    argument_class_metrics = []
+
+    gold_triggers = scorer.get_triggers(test_docs)
+    gold_arguments = scorer.get_arguments(test_docs)
+    for model_path in model_paths:
+        predictor = load_predictor(model_dir=model_path, predictor_name=PREDICTOR_NAME)
+        predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
+
+        predicted_triggers = scorer.get_triggers(predicted_docs)
+        predicted_arguments = scorer.get_arguments(predicted_docs)
+
+        trigger_id_metrics.append(
+            {'Trigger identification':
+             scorer.get_trigger_identification_metrics(gold_triggers, predicted_triggers)}
+        )
+        trigger_class_metrics.append(
+            scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers)
+        )
+        argument_id_metrics.append(
+            {'Argument identification':
+             scorer.get_argument_identification_metrics(gold_arguments, predicted_arguments)}
+        )
+        argument_class_metrics.append(
+            scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments)
+        )
+    trigger_id_metrics = pd.DataFrame(trigger_id_metrics)
+    trigger_class_metrics = pd.DataFrame(trigger_class_metrics)
+    argument_id_metrics = pd.DataFrame(argument_id_metrics)
+    argument_class_metrics = pd.DataFrame(argument_class_metrics)
+
+    trigger_metrics = [('Trigger identification',
+                        get_mean_std('Trigger identification', trigger_id_metrics)),
+                       ('Trigger classification',
+                        get_mean_std('micro avg', trigger_class_metrics))]
+    trigger_metrics += [
+        (trigger_label, get_mean_std(trigger_label, trigger_class_metrics))
+        for trigger_label in SD4M_RELATION_TYPES[:-1]]
+    trigger_metrics = dict(trigger_metrics)
+
+    argument_metrics = [('Argument identification',
+                         get_mean_std('Argument identification', argument_id_metrics)),
+                        ('Argument classification',
+                         get_mean_std('micro avg', argument_class_metrics))]
+    argument_metrics += [
+        (role_label, get_mean_std(role_label, argument_class_metrics))
+        for role_label in ROLE_LABELS[:-1]]
+    argument_metrics = dict(argument_metrics)
+
+    return trigger_metrics, argument_metrics
+
+
+def get_mean_std(label, data_frame):
+    """
+    Calculates macro averages and standard deviation across random repeats
+    Parameters
+    ----------
+    label
+    data_frame
+
+    Returns
+    -------
+
+    """
+    metric_values = {}
+    label_column = data_frame[label]
+    for metric in ['precision', 'recall', 'f1-score']:
+        values = np.asarray([row[metric] for row in label_column])
+        mean = values.mean()
+        std = values.std()
+        metric_values[metric] = [mean, std]
+    metric_values['support'] = label_column[0]['support']
+    return metric_values
+
+
+def format_classification_report(classification_report):
+    """
+    Helper to format the classification report in a way that is easier to export as csv
+    Parameters
+    ----------
+    classification_report
+
+    Returns
+    -------
+
+    """
+    rows = []
+    for k, v in classification_report.items():
+        row = {'row_name': k}
+        mean_row = {'row_name': k}
+        std_row = {'row_name': k}
+        if all(isinstance(v[metric], list) for metric in ['precision', 'recall', 'f1-score']):
+            for metric in ['precision', 'recall', 'f1-score']:
+                mean_row[metric] = '{:.{prec}f}'.format(v[metric][0] * 100, prec=1)
+                std_row[metric] = '+/- {:.{prec}f}'.format(v[metric][1] * 100, prec=1)
+            mean_row['support'] = v['support']
+            std_row['support'] = v['support']
+            rows.append(mean_row)
+            rows.append(std_row)
+        else:
+            for metric in ['precision', 'recall', 'f1-score']:
+                row[metric] = '{:.{prec}f}'.format(v[metric] * 100, prec=1)
+            row['support'] = v['support']
+            rows.append(row)
+
+    return pd.DataFrame(rows)
 
 
 def main(args):
@@ -154,26 +257,23 @@ def main(args):
     assert model_path.exists(), 'Input not found: %s'.format(args.model_path)
 
     test_docs = load_test_data(input_path)
+    gold_triggers = scorer.get_triggers(test_docs)
+    gold_arguments = scorer.get_arguments(test_docs)
 
     # Constructs instance only using tokens and ner tags
     predictor = load_predictor(model_dir=model_path, predictor_name=PREDICTOR_NAME)
     predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
-    label_arrays = get_label_arrays(test_docs, predicted_docs)
+    predicted_triggers = scorer.get_triggers(predicted_docs)
+    predicted_arguments = scorer.get_arguments(predicted_docs)
+
     print('Trigger identification')
-    print(sklearn.metrics.classification_report(y_true=label_arrays['trigger_id_y_true'],
-                                                y_pred=label_arrays['trigger_id_y_pred']))
-    # TODO find a way to take out the negative classes for the averaging of the scores
+    print(scorer.get_trigger_identification_metrics(gold_triggers, predicted_triggers))
     print('Trigger classification')
-    print(sklearn.metrics.classification_report(y_true=label_arrays['trigger_class_y_true'],
-                                                y_pred=label_arrays['trigger_class_y_pred'],
-                                                labels=SD4M_RELATION_TYPES[:-1]))
+    print(scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers))
     print('Argument identification')
-    print(sklearn.metrics.classification_report(y_true=label_arrays['arg_role_id_y_true'],
-                                                y_pred=label_arrays['arg_role_id_y_pred']))
-    print('Role classification')
-    print(sklearn.metrics.classification_report(y_true=label_arrays['arg_role_class_y_true'],
-                                                y_pred=label_arrays['arg_role_class_y_pred'],
-                                                labels=ROLE_LABELS[:-1]))
+    print(scorer.get_argument_identification_metrics(gold_arguments, predicted_arguments))
+    print('Argument classification')
+    print(scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments))
 
 
 if __name__ == '__main__':
