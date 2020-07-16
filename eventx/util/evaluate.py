@@ -138,7 +138,7 @@ def get_label_arrays(gold_docs, predicted_docs):
     }
 
 
-def average_runs(model_paths, test_docs):
+def average_runs(model_paths, test_docs, remove_duplicates=True):
     trigger_id_metrics = []
     trigger_class_metrics = []
     argument_id_metrics = []
@@ -146,6 +146,11 @@ def average_runs(model_paths, test_docs):
 
     gold_triggers = scorer.get_triggers(test_docs)
     gold_arguments = scorer.get_arguments(test_docs)
+    if remove_duplicates:
+        # Remove duplicates that are due to events sharing the same trigger
+        gold_triggers = list(set(gold_triggers))
+        gold_arguments = list(set(gold_arguments))
+
     for model_path in model_paths:
         predictor = load_predictor(model_dir=model_path, predictor_name=PREDICTOR_NAME)
         predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
@@ -173,29 +178,29 @@ def average_runs(model_paths, test_docs):
     argument_class_metrics = pd.DataFrame(argument_class_metrics)
 
     trigger_metrics = [('Trigger identification',
-                        get_mean_std('Trigger identification', trigger_id_metrics)),
+                        get_median_std('Trigger identification', trigger_id_metrics)),
                        ('Trigger classification',
-                        get_mean_std('micro avg', trigger_class_metrics))]
+                        get_median_std('micro avg', trigger_class_metrics))]
     trigger_metrics += [
-        (trigger_label, get_mean_std(trigger_label, trigger_class_metrics))
+        (trigger_label, get_median_std(trigger_label, trigger_class_metrics))
         for trigger_label in SD4M_RELATION_TYPES[:-1]]
     trigger_metrics = dict(trigger_metrics)
 
     argument_metrics = [('Argument identification',
-                         get_mean_std('Argument identification', argument_id_metrics)),
+                         get_median_std('Argument identification', argument_id_metrics)),
                         ('Argument classification',
-                         get_mean_std('micro avg', argument_class_metrics))]
+                         get_median_std('micro avg', argument_class_metrics))]
     argument_metrics += [
-        (role_label, get_mean_std(role_label, argument_class_metrics))
+        (role_label, get_median_std(role_label, argument_class_metrics))
         for role_label in ROLE_LABELS[:-1]]
     argument_metrics = dict(argument_metrics)
 
     return trigger_metrics, argument_metrics
 
 
-def get_mean_std(label, data_frame):
+def get_median_std(label, data_frame):
     """
-    Calculates macro averages and standard deviation across random repeats
+    Calculates median and standard deviation across random repeats
     Parameters
     ----------
     label
@@ -209,9 +214,11 @@ def get_mean_std(label, data_frame):
     label_column = data_frame[label]
     for metric in ['precision', 'recall', 'f1-score']:
         values = np.asarray([row[metric] for row in label_column])
-        mean = values.mean()
+        # mean = values.mean()
+        median = np.median(values)
         std = values.std()
-        metric_values[metric] = [mean, std]
+        metric_values[metric] = [median, std]
+        # metric_values[metric] = [mean, std]
     metric_values['support'] = label_column[0]['support']
     return metric_values
 
@@ -230,15 +237,15 @@ def format_classification_report(classification_report):
     rows = []
     for k, v in classification_report.items():
         row = {'row_name': k}
-        mean_row = {'row_name': k}
+        median_row = {'row_name': k}
         std_row = {'row_name': k}
         if all(isinstance(v[metric], list) for metric in ['precision', 'recall', 'f1-score']):
             for metric in ['precision', 'recall', 'f1-score']:
-                mean_row[metric] = '{:.{prec}f}'.format(v[metric][0] * 100, prec=1)
+                median_row[metric] = '{:.{prec}f}'.format(v[metric][0] * 100, prec=1)
                 std_row[metric] = '+/- {:.{prec}f}'.format(v[metric][1] * 100, prec=1)
-            mean_row['support'] = v['support']
+            median_row['support'] = v['support']
             std_row['support'] = v['support']
-            rows.append(mean_row)
+            rows.append(median_row)
             rows.append(std_row)
         else:
             for metric in ['precision', 'recall', 'f1-score']:
@@ -259,6 +266,10 @@ def main(args):
     test_docs = load_test_data(input_path)
     gold_triggers = scorer.get_triggers(test_docs)
     gold_arguments = scorer.get_arguments(test_docs)
+
+    # Remove duplicates that are due to events sharing the same trigger
+    gold_triggers = list(set(gold_triggers))
+    gold_arguments = list(set(gold_arguments))
 
     # Constructs instance only using tokens and ner tags
     predictor = load_predictor(model_dir=model_path, predictor_name=PREDICTOR_NAME)

@@ -1,8 +1,11 @@
 import copy
+import logging
 import pandas as pd
 import numpy as np
 from typing import Tuple, Dict, List, Union
 from allennlp.data import Instance
+
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 
 class Result:
@@ -20,7 +23,9 @@ class Result:
         if self.tp + self.fp > 0:
             return self.tp / (self.tp + self.fp)
         else:
-            return 1.0
+            logging.warning("Precision and F-score are ill-defined and being set to 0.0 in "
+                            "# labels with no predicted samples")
+            return 0.0
 
     def recall(self):
         if self.tp + self.fn > 0:
@@ -312,21 +317,25 @@ def get_arguments(documents: List[Union[Dict, Instance]]):
 
 
 def calc_metric(y_true, y_pred):
-    # Copied from:
+    # Inspired by:
     # https://github.com/nlpcl-lab/bert-event-extraction/blob/c35caea08269d6143cb988366c91a664b60b4106/utils.py#L20
-    y_true_set = set(y_true)  # Remove duplicates due to events sharing the same trigger
     num_predicted = len(y_pred)  # TP + FP
-    num_gold = len(y_true_set)  # TP + FN
+    num_gold = len(y_true)  # TP + FN
     num_correct = 0  # TP
 
     for item in y_pred:
-        if item in y_true_set:
+        if item in y_true:
             num_correct += 1
 
-    precision = num_correct / num_predicted if num_predicted > 0 else 1.0
+    if num_predicted > 0:
+        precision = num_correct / num_predicted
+    else:
+        logging.warning("Precision and F-score are ill-defined and being set to 0.0 in "
+                        "# labels with no predicted samples")
+        precision = 0.0
     recall = num_correct / num_gold if num_gold > 0 else 1.0
     f1 = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
-    support = len(y_true_set)
+    support = len(y_true)
 
     return {
         'precision': precision,
