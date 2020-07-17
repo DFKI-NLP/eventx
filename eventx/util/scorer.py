@@ -3,9 +3,38 @@ import logging
 import pandas as pd
 import numpy as np
 from typing import Tuple, Dict, List, Union
+from eventx import SD4M_RELATION_TYPES, ROLE_LABELS
 from allennlp.data import Instance
 
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger('eventx')
+logger.setLevel(level=logging.INFO)
+fh = logging.StreamHandler()
+fh_formatter = logging.Formatter('%(asctime)s - %(message)s')
+fh.setFormatter(fh_formatter)
+logger.addHandler(fh)
+
+
+def prettify_classification_report(c_report, labels=None):
+    dash = '-' * 80
+    output_str = dash
+    output_str += '\n{:<30s}{:>10s}{:>10s}{:>10s}{:>10s}\n'.format('', 'precision', 'recall',
+                                                                   'f1-score', 'support')
+    output_str += dash
+    if labels:
+        for label in labels:
+            if label in c_report:
+                metrics = c_report[label]
+                p, r, f1, s = metrics['precision'], metrics['recall'], metrics['f1-score'], \
+                    metrics['support']
+                output_str += '\n{:<30s}{:>10.2f}{:>10.2f}{:>10.2f}{:>10d}'.format(label, p, r, f1,
+                                                                                   s)
+    else:
+        for k, v in c_report.items():
+            output_str += '\n{:<30s}{:>10.2f}{:>10.2f}{:>10.2f}{:>10d}'.format(k, v['precision'],
+                                                                               v['recall'],
+                                                                               v['f1-score'],
+                                                                               v['support'])
+    return output_str
 
 
 class Result:
@@ -23,8 +52,8 @@ class Result:
         if self.tp + self.fp > 0:
             return self.tp / (self.tp + self.fp)
         else:
-            logging.warning("Precision and F-score are ill-defined and being set to 0.0 in "
-                            "# labels with no predicted samples")
+            logger.warning("Precision and F-score are ill-defined and being set to 0.0 in "
+                           "# labels with no predicted samples")
             return 0.0
 
     def recall(self):
@@ -232,7 +261,7 @@ def score_document(pred_doc, gold_doc, ignore_args=False, ignore_span=False,
 def score_documents(pred_events, gold_events,
                     ignore_args=False, ignore_span=False,
                     allow_subsumption=False, keep_event_matches=False,
-                    ignore_optional_args=False):
+                    ignore_optional_args=False, output_string=False):
     results: Dict[str, Result] = {'micro avg': Result()}
     for pred_doc_events, gold_doc_events in zip(pred_events,
                                                 list(gold_events)):
@@ -251,22 +280,26 @@ def score_documents(pred_events, gold_events,
     classification_report = {}
     for event_type, result in results.items():
         classification_report[event_type] = result.get_metrics()
+    if output_string:
+        print(prettify_classification_report(classification_report, SD4M_RELATION_TYPES[:-1]))
     return classification_report
 
 
 def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=False,
                 allow_subsumption=False, keep_event_matches=False,
-                ignore_optional_args=False):
+                ignore_optional_args=False, output_string=False):
     pred_file = pd.read_json(pred_file_path, lines=True, encoding='utf8')
     gold_file = pd.read_json(gold_file_path, lines=True, encoding='utf8')
 
     pred_events = pred_file['events']
     gold_events = gold_file['events']
+
     return score_documents(pred_events, gold_events, ignore_args=ignore_args,
                            ignore_span=ignore_span,
                            allow_subsumption=allow_subsumption,
                            keep_event_matches=keep_event_matches,
-                           ignore_optional_args=ignore_optional_args)
+                           ignore_optional_args=ignore_optional_args,
+                           output_string=output_string)
 
 
 def get_triggers(documents: List[Union[Dict, Instance]]):
@@ -330,8 +363,8 @@ def calc_metric(y_true, y_pred):
     if num_predicted > 0:
         precision = num_correct / num_predicted
     else:
-        logging.warning("Precision and F-score are ill-defined and being set to 0.0 in "
-                        "# labels with no predicted samples")
+        logger.warning("Precision and F-score are ill-defined and being set to 0.0 in "
+                       "# labels with no predicted samples")
         precision = 0.0
     recall = num_correct / num_gold if num_gold > 0 else 1.0
     f1 = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
@@ -373,7 +406,8 @@ def get_metrics_by_class(y_true: List[Tuple], y_pred: List[Tuple]):
     return metrics_by_class
 
 
-def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple]):
+def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple],
+                                       output_string=False):
     """
     Gets metrics for trigger identification. A trigger is identified correctly
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -381,6 +415,7 @@ def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers
 
     Parameters
     ----------
+    output_string: Whether to print a formatted string of the classification report
     gold_triggers: Gold triggers with document idx, trigger spans & type
     pred_triggers: Predicted triggers with document idx, trigger spans & type
 
@@ -391,10 +426,16 @@ def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers
     """
     gold_trigger_spans = [(trigger[0], trigger[1], trigger[2]) for trigger in gold_triggers]
     pred_trigger_spans = [(trigger[0], trigger[1], trigger[2]) for trigger in pred_triggers]
-    return calc_metric(gold_trigger_spans, pred_trigger_spans)
+    classification_report = {
+        'Trigger identification': calc_metric(gold_trigger_spans, pred_trigger_spans)
+    }
+    if output_string:
+        print(prettify_classification_report(classification_report))
+    return classification_report
 
 
-def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple]):
+def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple],
+                                       output_string=False):
     """
     Gets metrics for trigger classification. A trigger is correct
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -402,6 +443,7 @@ def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers
 
     Parameters
     ----------
+    output_string: Whether to print a formatted string of the classification report
     gold_triggers: Gold triggers with document idx, trigger spans & type
     pred_triggers: Predicted triggers with document idx, trigger spans & type
 
@@ -411,12 +453,16 @@ def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers
 
     """
     micro_avg = calc_metric(gold_triggers, pred_triggers)
-    classification_report = get_metrics_by_class(gold_triggers, pred_triggers)
-    classification_report['micro avg'] = micro_avg
+    classification_report = {'Trigger classification': micro_avg}
+    classification_report.update(get_metrics_by_class(gold_triggers, pred_triggers))
+    if output_string:
+        print(prettify_classification_report(
+            classification_report, ['Trigger classification']+SD4M_RELATION_TYPES[:-1]))
     return classification_report
 
 
-def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple]):
+def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple],
+                                        output_string=False):
     """
     Gets metrics for argument identification. An argument is identified correctly
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -424,6 +470,7 @@ def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_argume
 
     Parameters
     ----------
+    output_string: Whether to print a formatted string of the classification report
     gold_arguments: Gold arguments with document idx, trigger spans & type, arg spans & type
     pred_arguments: Predicted arguments with document idx, trigger spans & type, arg spans & type
 
@@ -436,10 +483,16 @@ def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_argume
                            for arg in gold_arguments]
     pred_argument_spans = [(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5])
                            for arg in pred_arguments]
-    return calc_metric(gold_argument_spans, pred_argument_spans)
+    classification_report = {
+        'Argument identification': calc_metric(gold_argument_spans, pred_argument_spans)
+    }
+    if output_string:
+        print(prettify_classification_report(classification_report))
+    return classification_report
 
 
-def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple]):
+def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple],
+                                        output_string=False):
     """
     Gets metrics for argument classification. An argument is classified correctly
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -448,6 +501,7 @@ def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_argume
 
     Parameters
     ----------
+    output_string: Whether to print a formatted string of the classification report
     gold_arguments: Gold arguments with document idx, trigger spans & type, arg spans & type
     pred_arguments: Predicted arguments with document idx, trigger spans & type, arg spans & type
 
@@ -457,6 +511,9 @@ def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_argume
 
     """
     micro_avg = calc_metric(gold_arguments, pred_arguments)
-    classification_report = get_metrics_by_class(gold_arguments, pred_arguments)
-    classification_report['micro avg'] = micro_avg
+    classification_report = {'Argument classification': micro_avg}
+    classification_report.update(get_metrics_by_class(gold_arguments, pred_arguments))
+    if output_string:
+        print(prettify_classification_report(
+            classification_report, ['Argument classification']+ROLE_LABELS[:-1]))
     return classification_report
