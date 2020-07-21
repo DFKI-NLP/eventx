@@ -9,7 +9,7 @@ export LEARNING_RATE=0.0022260678803619886
 DATA_DIR=data/pipeline_run
 CONFIG_FILE=configs/snorkel_bert.jsonnet
 
-SEED=13270
+SEED=13370
 PYTORCH_SEED=`expr $RANDOM_SEED / 10`
 NUMPY_SEED=`expr $PYTORCH_SEED / 10`
 export SEED=$SEED

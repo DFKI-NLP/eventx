@@ -52,8 +52,8 @@ class Result:
         if self.tp + self.fp > 0:
             return self.tp / (self.tp + self.fp)
         else:
-            logger.warning("Precision and F-score are ill-defined and being set to 0.0 in "
-                           "# labels with no predicted samples")
+            # logger.warning("Precision and F-score are ill-defined and being set to 0.0 in "
+            #                "# labels with no predicted samples")
             return 0.0
 
     def recall(self):
@@ -363,8 +363,8 @@ def calc_metric(y_true, y_pred):
     if num_predicted > 0:
         precision = num_correct / num_predicted
     else:
-        logger.warning("Precision and F-score are ill-defined and being set to 0.0 in "
-                       "# labels with no predicted samples")
+        # logger.warning("Precision and F-score are ill-defined and being set to 0.0 in "
+        #                "# labels with no predicted samples")
         precision = 0.0
     recall = num_correct / num_gold if num_gold > 0 else 1.0
     f1 = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0

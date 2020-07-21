@@ -3,7 +3,6 @@ import json
 import io
 import logging
 import copy
-from tqdm import tqdm
 from typing import List
 
 import numpy as np
@@ -154,8 +153,8 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
         # Remove duplicates that are due to events sharing the same trigger
         gold_triggers = list(set(gold_triggers))
         gold_arguments = list(set(gold_arguments))
-
-    for model_path in tqdm(model_paths):
+    logging.info(f'Collecting metrics for the {len(model_paths)} models')
+    for model_path in model_paths:
         predictor = load_predictor(model_dir=model_path, predictor_name=predictor_name)
         predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
 
@@ -180,56 +179,86 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
     argument_class_metrics = pd.DataFrame(argument_class_metrics)
 
     trigger_metrics = [('Trigger identification',
-                        get_median_std('Trigger identification', trigger_id_metrics)),
+                        collect_values('Trigger identification', trigger_id_metrics)),
                        ('Trigger classification',
-                        get_median_std('Trigger classification', trigger_class_metrics))]
+                        collect_values('Trigger classification', trigger_class_metrics))]
     trigger_metrics += [
-        (trigger_label, get_median_std(trigger_label, trigger_class_metrics))
+        (trigger_label, collect_values(trigger_label, trigger_class_metrics))
         for trigger_label in SD4M_RELATION_TYPES[:-1]]
     trigger_metrics = dict(trigger_metrics)
 
     argument_metrics = [('Argument identification',
-                         get_median_std('Argument identification', argument_id_metrics)),
+                         collect_values('Argument identification', argument_id_metrics)),
                         ('Argument classification',
-                         get_median_std('Argument classification', argument_class_metrics))]
+                         collect_values('Argument classification', argument_class_metrics))]
     argument_metrics += [
-        (role_label, get_median_std(role_label, argument_class_metrics))
+        (role_label, collect_values(role_label, argument_class_metrics))
         for role_label in ROLE_LABELS[:-1]]
     argument_metrics = dict(argument_metrics)
 
     return trigger_metrics, argument_metrics
 
 
-def get_median_std(label, data_frame):
+def get_median_std(metrics_dictionary):
     """
     Calculates median and standard deviation across random repeats
     Parameters
     ----------
-    label
-    data_frame
+    metrics_dictionary
 
     Returns
     -------
 
     """
+    metrics_dictionary_copy = copy.deepcopy(metrics_dictionary)
+    for label, label_metrics in metrics_dictionary_copy.items():
+        for metric in ['precision', 'recall', 'f1-score']:
+            values = np.asarray(label_metrics[metric])
+            median = np.median(values)
+            std = values.std()
+            metrics_dictionary_copy[label][metric] = [median, std]
+    return metrics_dictionary_copy
+
+
+def get_mean_std(metrics_dictionary):
+    """
+    Calculates mean and standard deviation across random repeats
+    Parameters
+    ----------
+    metrics_dictionary
+
+    Returns
+    -------
+
+    """
+    metrics_dictionary_copy = copy.deepcopy(metrics_dictionary)
+    for label, label_metrics in metrics_dictionary_copy.items():
+        for metric in ['precision', 'recall', 'f1-score']:
+            values = np.asarray(label_metrics[metric])
+            mean = values.mean()
+            std = values.std()
+            metrics_dictionary_copy[label][metric] = [mean, std]
+    return metrics_dictionary_copy
+
+
+def collect_values(label, data_frame):
     metric_values = {}
     label_column = data_frame[label]
     for metric in ['precision', 'recall', 'f1-score']:
         values = np.asarray([row[metric] for row in label_column])
-        # mean = values.mean()
-        median = np.median(values)
-        std = values.std()
-        metric_values[metric] = [median, std]
-        # metric_values[metric] = [mean, std]
+        metric_values[metric] = values
     metric_values['support'] = label_column[0]['support']
     return metric_values
 
 
-def format_classification_report(classification_report):
+def format_classification_report(classification_report, make_string=False):
     """
     Helper to format the classification report in a way that is easier to export as csv
+    Assumes either list of mean/median and standard deviation for each metric or single value
+    for each metric.
     Parameters
     ----------
+    make_string: Median/Mean with standard deviation in one string
     classification_report
 
     Returns
@@ -245,10 +274,13 @@ def format_classification_report(classification_report):
             for metric in ['precision', 'recall', 'f1-score']:
                 median_row[metric] = '{:.{prec}f}'.format(v[metric][0] * 100, prec=1)
                 std_row[metric] = '+/- {:.{prec}f}'.format(v[metric][1] * 100, prec=1)
+                if make_string:
+                    median_row[metric] = median_row[metric]+std_row[metric]
             median_row['support'] = v['support']
             std_row['support'] = v['support']
             rows.append(median_row)
-            rows.append(std_row)
+            if not make_string:
+                rows.append(std_row)
         else:
             for metric in ['precision', 'recall', 'f1-score']:
                 row[metric] = '{:.{prec}f}'.format(v[metric] * 100, prec=1)
@@ -268,6 +300,8 @@ def evaluate_random_repeats(models_base_path, test_data_path, output_path, runs=
     for config in configs:
         model_paths = [models_base_path.joinpath(f'run0{run+1}/{config}') for run in range(runs)]
         trigger_metrics, argument_metrics = summize_multiple_runs(model_paths, test_docs)
+        trigger_metrics = get_median_std(trigger_metrics)
+        argument_metrics = get_median_std(argument_metrics)
         formatted_trigger = format_classification_report(trigger_metrics)
         formatted_argument = format_classification_report(argument_metrics)
         formatted_metrics = pd.concat([formatted_trigger, formatted_argument])
