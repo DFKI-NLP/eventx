@@ -17,10 +17,6 @@ from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, NEGATIVE_TRIGGER_LABEL, NEG
 
 logger = logging.getLogger('eventx')
 logger.setLevel(level=logging.INFO)
-fh = logging.StreamHandler()
-fh_formatter = logging.Formatter('%(asctime)s - %(message)s')
-fh.setFormatter(fh_formatter)
-logger.addHandler(fh)
 
 
 def load_test_data(input_path) -> List[JsonDict]:
@@ -155,24 +151,28 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
         gold_arguments = list(set(gold_arguments))
     logging.info(f'Collecting metrics for the {len(model_paths)} models')
     for model_path in model_paths:
-        predictor = load_predictor(model_dir=model_path, predictor_name=predictor_name)
-        predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
+        try:
+            predictor = load_predictor(model_dir=model_path, predictor_name=predictor_name)
+            predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
 
-        predicted_triggers = scorer.get_triggers(predicted_docs)
-        predicted_arguments = scorer.get_arguments(predicted_docs)
+            predicted_triggers = scorer.get_triggers(predicted_docs)
+            predicted_arguments = scorer.get_arguments(predicted_docs)
 
-        trigger_id_metrics.append(
-            scorer.get_trigger_identification_metrics(gold_triggers, predicted_triggers)
-        )
-        trigger_class_metrics.append(
-            scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers)
-        )
-        argument_id_metrics.append(
-            scorer.get_argument_identification_metrics(gold_arguments, predicted_arguments)
-        )
-        argument_class_metrics.append(
-            scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments)
-        )
+            trigger_id_metrics.append(
+                scorer.get_trigger_identification_metrics(gold_triggers, predicted_triggers)
+            )
+            trigger_class_metrics.append(
+                scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers)
+            )
+            argument_id_metrics.append(
+                scorer.get_argument_identification_metrics(gold_arguments, predicted_arguments)
+            )
+            argument_class_metrics.append(
+                scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments)
+            )
+        except KeyError as err:
+            logger.warning(f'The model {model_path} encountered an OOV error ({err}). '
+                           f'Skip and continue.')
     trigger_id_metrics = pd.DataFrame(trigger_id_metrics)
     trigger_class_metrics = pd.DataFrame(trigger_class_metrics)
     argument_id_metrics = pd.DataFrame(argument_id_metrics)
