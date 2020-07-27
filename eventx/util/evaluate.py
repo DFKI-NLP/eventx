@@ -201,7 +201,7 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
 
 def get_median_std(metrics_dictionary):
     """
-    Calculates median and standard deviation across random repeats
+    Calculates median and standard deviation across repeated runs
     Parameters
     ----------
     metrics_dictionary
@@ -222,7 +222,7 @@ def get_median_std(metrics_dictionary):
 
 def get_mean_std(metrics_dictionary):
     """
-    Calculates mean and standard deviation across random repeats
+    Calculates mean and standard deviation across repeated runs
     Parameters
     ----------
     metrics_dictionary
@@ -268,17 +268,17 @@ def format_classification_report(classification_report, make_string=False):
     rows = []
     for k, v in classification_report.items():
         row = {'row_name': k}
-        median_row = {'row_name': k}
+        mean_row = {'row_name': k}
         std_row = {'row_name': k}
         if all(isinstance(v[metric], list) for metric in ['precision', 'recall', 'f1-score']):
             for metric in ['precision', 'recall', 'f1-score']:
-                median_row[metric] = '{:.{prec}f}'.format(v[metric][0] * 100, prec=1)
+                mean_row[metric] = '{:.{prec}f}'.format(v[metric][0] * 100, prec=1)
                 std_row[metric] = '+/- {:.{prec}f}'.format(v[metric][1] * 100, prec=1)
                 if make_string:
-                    median_row[metric] = median_row[metric]+std_row[metric]
-            median_row['support'] = v['support']
+                    mean_row[metric] = mean_row[metric] + std_row[metric]
+            mean_row['support'] = v['support']
             std_row['support'] = v['support']
-            rows.append(median_row)
+            rows.append(mean_row)
             if not make_string:
                 rows.append(std_row)
         else:
@@ -298,10 +298,30 @@ def evaluate_random_repeats(models_base_path, test_data_path, output_path, runs=
     if configs is None:
         configs = ['snorkel_bert_gold', 'snorkel_bert_daystream', 'snorkel_bert_merged']
     for config in configs:
-        model_paths = [models_base_path.joinpath(f'run0{run+1}/{config}') for run in range(runs)]
+        model_paths = [models_base_path.joinpath(f'run_{run + 1}/{config}') for run in range(runs)]
         trigger_metrics, argument_metrics = summize_multiple_runs(model_paths, test_docs)
-        trigger_metrics = get_median_std(trigger_metrics)
-        argument_metrics = get_median_std(argument_metrics)
+        trigger_metrics = get_mean_std(trigger_metrics)
+        argument_metrics = get_mean_std(argument_metrics)
+        formatted_trigger = format_classification_report(trigger_metrics)
+        formatted_argument = format_classification_report(argument_metrics)
+        formatted_metrics = pd.concat([formatted_trigger, formatted_argument])
+        formatted_metrics.set_index('row_name', inplace=True)
+        formatted_metrics.to_csv(output_path.joinpath(f'{config}_results.csv'))
+
+
+def evaluate_increasing_train_data(models_base_path, test_data_path, output_path, runs=5,
+                                   configs=None):
+    models_base_path = Path(models_base_path)
+    test_docs = load_test_data(test_data_path)
+    output_path = Path(output_path)
+    if configs is None:
+        configs = [f'daystream{percentage}_snorkeled' for percentage in range(50, 101, 10)]
+    for config in configs:
+        model_paths = [models_base_path.joinpath(f'samples_{run + 1}/{config}')
+                       for run in range(runs)]
+        trigger_metrics, argument_metrics = summize_multiple_runs(model_paths, test_docs)
+        trigger_metrics = get_mean_std(trigger_metrics)
+        argument_metrics = get_mean_std(argument_metrics)
         formatted_trigger = format_classification_report(trigger_metrics)
         formatted_argument = format_classification_report(argument_metrics)
         formatted_metrics = pd.concat([formatted_trigger, formatted_argument])
