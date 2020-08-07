@@ -14,9 +14,13 @@ def cross_entropy_with_probs(
 ) -> torch.Tensor:
     """Calculate cross-entropy loss when targets are probabilities (floats), not ints.
 
-    snorkel.classification.loss.cross_entropy_with_probs adapted to work with tensors with ndim > 2
+    Combines the code from snorkel.classification.loss.cross_entropy_with_probs function (L.67-82)
+    simulating cross entropy functionality in pytorch from
+    https://github.com/snorkel-team/snorkel/blob/master/snorkel/classification/loss.py
+    with parts of pytorch.nn.functional.nll_loss (L.55-62) to handle tensors with ndim > 2 from
+    https://pytorch.org/docs/stable/_modules/torch/nn/functional.html#nll_loss
 
-    PyTorch's F.cross_entropy() method requires integer labels; it does accept
+    PyTorch's F.cross_entropy() method requires integer labels; it does not accept
     probabilistic labels. We can, however, simulate such functionality with a for loop,
     calculating the loss contributed by each class and accumulating the results.
     Libraries such as keras do not require this workaround, as methods like
@@ -54,8 +58,8 @@ def cross_entropy_with_probs(
     if input.size(0) != target.size(0):
         raise ValueError('Expected input batch_size ({}) to match target batch_size ({}).'
                          .format(input.size(0), target.size(0)))
-    n = input.size(0)
-    c = input.size(1)
+    n = input.size(0)   # number of points
+    c = input.size(1)   # number of classes
     out_size = (n,) + input.size()[2:]
     if target.size()[1:-1] != input.size()[2:]:
         raise ValueError('Expected target size {}, got {}'.format(
@@ -76,5 +80,3 @@ def cross_entropy_with_probs(
         return cum_losses.sum()
     else:
         raise ValueError("Keyword 'reduction' must be one of ['none', 'mean', 'sum']")
-
-

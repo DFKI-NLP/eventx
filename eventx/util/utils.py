@@ -39,25 +39,25 @@ def get_entity(entity_id: str, entities: List[Dict[str, Any]]) -> Dict:
         raise Exception(f'The entity_id {entity_id} was not found in:\n {entities}')
 
 
-def snorkel_to_ace_format(doc_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def snorkel_to_ace_format(doc_df):
     """
     Takes list of documents with event triggers and event roles in the Snorkel format and creates
     events in the ACE format.
 
     Parameters
     ----------
-    doc_list: List of documents with event triggers and event roles
+    doc_df: List of documents/ pd.DataFrame with event triggers and event roles
 
     Returns
     -------
-    List of documents with events
+    pd.DataFrame of documents with events
     """
-    df = pd.DataFrame(doc_list)
+    df = pd.DataFrame(doc_df)
     assert 'event_triggers' in df
     assert 'event_roles' in df
     converted_df = df.apply(create_events, axis=1)\
         .drop(labels=['event_triggers', 'event_roles'], axis=1)
-    return converted_df.to_dict('records')
+    return converted_df
 
 
 def create_events(document):
@@ -75,41 +75,32 @@ def create_events(document):
     """
     formatted_events = []
     if 'entities' in document and 'event_triggers' in document and 'event_roles' in document:
-        # TODO: save string labels instead of redoing it later on
-        filtered_triggers = [t for t in document['event_triggers']
-                             if SD4M_RELATION_TYPES[np.asarray(t['event_type_probs']).argmax()]
-                             != NEGATIVE_TRIGGER_LABEL]
-        filtered_roles = [r for r in document['event_roles']
-                          if ROLE_LABELS[np.asarray(r['event_argument_probs']).argmax()]
-                          != NEGATIVE_ARGUMENT_LABEL]
-
-        for event_trigger in filtered_triggers:
+        for event_trigger in document['event_triggers']:
+            event_type_probs = np.asarray(event_trigger['event_type_probs'])
+            if event_type_probs.sum() == 0.0:
+                continue
+            trigger_label_idx = event_type_probs.argmax()
+            trigger_label = SD4M_RELATION_TYPES[trigger_label_idx]
+            if trigger_label == NEGATIVE_TRIGGER_LABEL:
+                continue
             trigger_entity = get_entity(event_trigger['id'], document['entities'])
-            event_type = SD4M_RELATION_TYPES[np.asarray(event_trigger['event_type_probs']).argmax()]
-            formatted_trigger = {
-                'id': trigger_entity['id'],
-                'text': trigger_entity['text'],
-                'entity_type': trigger_entity['entity_type'],
-                'start': trigger_entity['start'],
-                'end': trigger_entity['end']
-            }
-            relevant_args = [arg for arg in filtered_roles if arg['trigger'] == event_trigger['id']]
+            relevant_args = [arg for arg in document['event_roles']
+                             if arg['trigger'] == event_trigger['id']]
             formatted_args = []
             for event_arg in relevant_args:
+                event_argument_probs = np.asarray(event_arg['event_argument_probs'])
+                if event_argument_probs.sum() == 0.0:
+                    continue
+                role_label_idx = np.asarray(event_arg['event_argument_probs']).argmax()
+                role_label = ROLE_LABELS[role_label_idx]
+                if role_label == NEGATIVE_ARGUMENT_LABEL:
+                    continue
                 event_arg_entity = get_entity(event_arg['argument'], document['entities'])
-                arg_role = ROLE_LABELS[np.asarray(event_arg['event_argument_probs']).argmax()]
-                formatted_arg = {
-                    'id': event_arg_entity['id'],
-                    'text': event_arg_entity['text'],
-                    'entity_type': event_arg_entity['entity_type'],
-                    'start': event_arg_entity['start'],
-                    'end': event_arg_entity['end'],
-                    'role': arg_role
-                }
-                formatted_args.append(formatted_arg)
+                event_arg_entity['role'] = role_label
+                formatted_args.append(event_arg_entity)
             formatted_event = {
-                'event_type': event_type,
-                'trigger': formatted_trigger,
+                'event_type': trigger_label,
+                'trigger': trigger_entity,
                 'arguments': formatted_args
             }
             formatted_events.append(formatted_event)
@@ -117,24 +108,23 @@ def create_events(document):
     return document
 
 
-def ace_to_snorkel_format(doc_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def ace_to_snorkel_format(doc_df: List[Dict[str, Any]]):
     """
     Takes list of documents with events in the ACE format and creates
     events in the Snorkel format with event triggers and event roles.
 
     Parameters
     ----------
-    doc_list: List of documents with event triggers and event roles
+    doc_df: List of documents/ pd.DataFrame with event triggers and event roles
 
     Returns
     -------
-    List of documents with events
+    pd.DataFrame of documents with events
     """
-    df = pd.DataFrame(doc_list)
+    df = pd.DataFrame(doc_df)
     assert 'events' in df
-    converted_df = df.apply(convert_events, axis=1)\
-        .drop(labels=['events'], axis=1)
-    return converted_df.to_dict('records')
+    converted_df = df.apply(convert_events, axis=1).drop(labels=['events'], axis=1)
+    return converted_df
 
 
 def convert_events(document):
