@@ -7,11 +7,12 @@ export NUM_EPOCHS=100
 export BATCH_SIZE=32
 export LEARNING_RATE=0.0022260678803619886
 DATA_DIR=daystream_corpus
+export TRAIN_PATH=data/"$DATA_DIR"/daystream_mlv_snorkeled.jsonl
 export DEV_PATH=data/"$DATA_DIR"/dev/dev_with_events_and_defaults.jsonl
 CONFIG_FILE=configs/snorkel_bert.jsonnet
 
 ITER=1
-for RANDOM_SEED in 54360 44184 20423 27916; do
+for RANDOM_SEED in 54360 44184 20423 80520 27916; do
 
 	SEED=$RANDOM_SEED
 	PYTORCH_SEED=`expr $RANDOM_SEED / 10`
@@ -22,14 +23,9 @@ for RANDOM_SEED in 54360 44184 20423 27916; do
 
 	echo Run ${ITER} with seed ${RANDOM_SEED}
 
-	for SAMPLE_FRACTION in 50 60 70 80 90 100; do
-	  SAMPLE=daystream"$SAMPLE_FRACTION"_snorkeled
-	  TRAIN_PATH=data/"$DATA_DIR"/"$SAMPLE".jsonl
-	  export TRAIN_PATH
-		OUTPUT_DIR=data/runs/single_rr_increasing_train_data/run_"$ITER"/"$SAMPLE"
+  OUTPUT_DIR=data/runs/random_repeats/run_"$ITER"/snorkel_bert_mlv_daystream
 
-		allennlp train --include-package eventx $CONFIG_FILE -s $OUTPUT_DIR -f
-	done
+  allennlp train --include-package eventx $CONFIG_FILE -s $OUTPUT_DIR -f
 
 	ITER=$(expr $ITER + 1)
 done
