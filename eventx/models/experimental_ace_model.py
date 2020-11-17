@@ -2,7 +2,9 @@ from typing import Dict, List, Any
 
 import torch
 import torch.nn.functional as F
+import numpy as np
 from allennlp.data import Vocabulary
+from allennlp.data.dataset_readers.dataset_utils import bio_tags_to_spans
 from allennlp.models import Model
 from allennlp.modules import TextFieldEmbedder, Seq2SeqEncoder, TimeDistributed, TokenEmbedder
 from allennlp.modules.span_extractors import SpanExtractor
@@ -16,8 +18,8 @@ from eventx.util import MicroFBetaMeasure
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 
-@Model.register('eventx-model')
-class EventxModel(Model):
+@Model.register('experimental-ace-model')
+class ExperimentalAceModel(Model):
 
     def __init__(self,
                  vocab: Vocabulary,
@@ -53,9 +55,7 @@ class EventxModel(Model):
         self.trigger_to_hidden = Linear(
             self.encoder.get_output_dim() + self.trigger_embedder.get_output_dim(),
             self.hidden_dim)
-        self.entities_to_hidden = Linear(
-            self.encoder.get_output_dim() + self.entity_embedder.get_output_dim(),
-            self.hidden_dim)
+        self.entities_to_hidden = Linear(self.encoder.get_output_dim(), self.hidden_dim)
         self.hidden_bias = Parameter(torch.Tensor(self.hidden_dim))
         torch.nn.init.normal_(self.hidden_bias)
         self.hidden_to_roles = Linear(self.hidden_dim,
@@ -76,27 +76,33 @@ class EventxModel(Model):
     @overrides
     def forward(self,
                 tokens: Dict[str, torch.LongTensor],
-                entity_labels: torch.LongTensor,
+                entity_tags: torch.LongTensor,
                 entity_spans: torch.LongTensor,
                 triggers: torch.LongTensor = None,
                 arg_roles: torch.LongTensor = None,
                 metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         embedded_tokens = self.text_field_embedder(tokens)
         text_mask = get_text_field_mask(tokens)
-        encoded_tokens = self.encoder(embedded_tokens, text_mask)
+        embedded_entity_tags = self.entity_embedder(entity_tags)
+        embedded_input = torch.cat([embedded_tokens, embedded_entity_tags], dim=-1)
+
+        encoded_input = self.encoder(embedded_input, text_mask)
 
         ###########################
         # Trigger type prediction #
         ###########################
 
         # Pass the extracted triggers through a projection for classification
-        trigger_logits = self.trigger_projection(encoded_tokens)
+        trigger_logits = self.trigger_projection(encoded_input)
+
+        # Add the trigger predictions to the output
         trigger_probabilities = F.softmax(trigger_logits, dim=-1)
         trigger_predictions = trigger_logits.argmax(dim=-1)
         output_dict = {"trigger_logits": trigger_logits,
                        "trigger_probabilities": trigger_probabilities}
 
         if triggers is not None:
+            # Compute loss and metrics using the given trigger labels
             self.trigger_accuracy(trigger_logits, triggers, text_mask.float())
             self.trigger_f1(trigger_logits, triggers, text_mask.float())
             loss = sequence_cross_entropy_with_logits(logits=trigger_logits,
@@ -112,20 +118,16 @@ class EventxModel(Model):
 
         # Extract the spans of the encoded entities
         entity_spans_mask = (entity_spans[:, :, 0] >= 0).squeeze(-1).long()
-        encoded_entities = self.span_extractor(sequence_tensor=encoded_tokens,
+        encoded_entities = self.span_extractor(sequence_tensor=encoded_input,
                                                span_indices=entity_spans,
                                                sequence_mask=text_mask,
                                                span_indices_mask=entity_spans_mask)
 
         # Project both triggers and entities/args into a 'hidden' comparison space
-        entity_label_mask = (entity_labels != -1)
-        entity_labels = entity_labels * entity_label_mask
-        embedded_entity_labels = self.entity_embedder(entity_labels)
         embedded_trigger_labels = self.trigger_embedder(trigger_predictions)
         triggers_hidden = self.trigger_to_hidden(
-            torch.cat([encoded_tokens, embedded_trigger_labels], dim=-1))  # B x L x H
-        entities_hidden = self.entities_to_hidden(
-            torch.cat([encoded_entities, embedded_entity_labels], dim=-1))  # B x E x H
+            torch.cat([encoded_input, embedded_trigger_labels], dim=-1))  # B x L x H
+        entities_hidden = self.entities_to_hidden(encoded_entities)  # B x E x H
 
         # Create the cross-product of triggers and args via broadcasting
         trigger = triggers_hidden.unsqueeze(2)  # Shape: B x L x 1 x H
@@ -146,7 +148,7 @@ class EventxModel(Model):
             arg_roles = self._assert_target_seq_len(seq_len=embedded_tokens.shape[1],
                                                     target=arg_roles)
             target_mask = (arg_roles != -1)
-            target = arg_roles * target_mask
+            target = arg_roles * target_mask  # remove negative indices
 
             self.role_accuracy(role_logits, target, target_mask.float())
             self.role_f1(role_logits, target, target_mask.float())
@@ -175,6 +177,19 @@ class EventxModel(Model):
             'role_acc': self.role_accuracy.get_metric(reset=reset),
             'role_f1': self.role_f1.get_metric(reset=reset)['fscore']
         }
+
+    def retrieve_trigger_spans_from_probabilities(self, trigger_probabilities):
+        # Retrieve predicted iob2 trigger tags, get exclusive spans
+        batch_trigger_spans = []
+        trigger_predictions = trigger_probabilities.cpu().data.numpy()
+        for example in np.argmax(trigger_predictions, axis=-1):
+            trigger_tags = [self.vocab.get_token_from_index(trigger_idx, self._triggers_namespace)
+                            for trigger_idx in example]
+            trigger_labels_with_spans = bio_tags_to_spans(trigger_tags)
+            trigger_spans = [(t[1][0], t[1][1] + 1) for t in trigger_labels_with_spans]
+            batch_trigger_spans.append(trigger_spans)
+
+        return batch_trigger_spans
 
     @staticmethod
     def _assert_target_seq_len(seq_len, target):
