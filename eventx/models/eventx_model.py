@@ -208,16 +208,14 @@ class EventxModel(Model):
                     },
                     'arguments': []
                 }
-                # Group role labels by predicted trigger and extract majority role label in case
-                # of multi token trigger/ keep role label corresponding to trigger head
-                for entity_idx, role_labels in enumerate(
-                        arg_role_labels[batch_idx][trigger_start:trigger_end]):
-                    role_label = role_labels[0]  # default to role corresponding to 1. trigger token
-                    if len(role_labels) > 1:  # Majority label vote
-                        unique, pos = np.unique(np.asarray(role_labels), return_inverse=True)
-                        counts = np.bincount(pos)
-                        maxpos = counts.argmax()
-                        role_label = unique[maxpos]
+                # Group role labels by predicted trigger, sum and argmax to extract role label
+                # in case of multi token trigger
+                for entity_idx, role_probs in enumerate(
+                        arg_role_predictions[batch_idx][trigger_start:trigger_end]):
+                    role_probs_sum = role_probs.sum(axis=0)
+                    role_idx = role_probs_sum.argmax()
+                    role_label = self.vocab.get_token_from_index(role_idx,
+                                                                 namespace=self._roles_namespace)
                     if role_label == NEGATIVE_ARGUMENT_LABEL:
                         continue
                     arg_span = output_dict['entity_spans'][batch_idx][entity_idx]

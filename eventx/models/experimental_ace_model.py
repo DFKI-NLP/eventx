@@ -170,6 +170,71 @@ class ExperimentalAceModel(Model):
         return output_dict
 
     @overrides
+    def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        trigger_predictions = output_dict['trigger_probabilities'].cpu().data.numpy()
+        trigger_tags = [
+            [self.vocab.get_token_from_index(trigger_idx, namespace=self._triggers_namespace)
+             for trigger_idx in example]
+            for example in np.argmax(trigger_predictions, axis=-1)
+        ]
+        output_dict['trigger_tags'] = trigger_tags
+        # Convert to trigger labels with inclusive spans: Tuple[str, Tuple[int, int]]
+        trigger_labels = [bio_tags_to_spans(example) for example in trigger_tags]
+
+        arg_role_predictions = output_dict['role_logits'].cpu().data.numpy()
+        arg_role_labels = [
+            [[self.vocab.get_token_from_index(role_idx, namespace=self._roles_namespace)
+              for role_idx in event]
+             for event in example]
+            for example in np.argmax(arg_role_predictions, axis=-1)]
+        output_dict['role_labels'] = arg_role_labels
+
+        events = []
+        for batch_idx in range(len(trigger_labels)):
+            words = output_dict['words'][batch_idx]
+            batch_events = []
+            for trigger_idx, trigger_label_with_span in enumerate(trigger_labels[batch_idx]):
+                trigger_label, trigger_span = trigger_label_with_span
+                if trigger_label == NEGATIVE_TRIGGER_LABEL:
+                    continue
+                trigger_start = trigger_span[0]
+                trigger_end = trigger_span[1] + 1
+                event = {
+                    'event_type': trigger_label,
+                    'trigger': {
+                        'text': " ".join(words[trigger_start:trigger_end]),
+                        'start': trigger_start,
+                        'end': trigger_end
+                    },
+                    'arguments': []
+                }
+                # Group role labels by predicted trigger, sum and argmax to extract role label
+                # in case of multi token trigger
+                for entity_idx, role_probs in enumerate(
+                    arg_role_predictions[batch_idx][trigger_start:trigger_end]):
+                    role_idx = role_probs.sum(axis=0).argmax()
+                    role_label = self.vocab.get_token_from_index(role_idx,
+                                                                 namespace=self._roles_namespace)
+                    if role_label == NEGATIVE_ARGUMENT_LABEL:
+                        continue
+                    arg_span = output_dict['entity_spans'][batch_idx][entity_idx]
+                    arg_start = arg_span[0].item()
+                    arg_end = arg_span[1].item() + 1
+                    argument = {
+                        'text': " ".join(words[arg_start:arg_end]),
+                        'start': arg_start,
+                        'end': arg_end,
+                        'role': role_label
+                    }
+                    event['arguments'].append(argument)
+                if len(event['arguments']) > 0:
+                    batch_events.append(event)
+            events.append(batch_events)
+        output_dict['events'] = events
+
+        return output_dict
+
+    @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         return {
             'trigger_acc': self.trigger_accuracy.get_metric(reset=reset),
@@ -177,19 +242,6 @@ class ExperimentalAceModel(Model):
             'role_acc': self.role_accuracy.get_metric(reset=reset),
             'role_f1': self.role_f1.get_metric(reset=reset)['fscore']
         }
-
-    def retrieve_trigger_spans_from_probabilities(self, trigger_probabilities):
-        # Retrieve predicted iob2 trigger tags, get exclusive spans
-        batch_trigger_spans = []
-        trigger_predictions = trigger_probabilities.cpu().data.numpy()
-        for example in np.argmax(trigger_predictions, axis=-1):
-            trigger_tags = [self.vocab.get_token_from_index(trigger_idx, self._triggers_namespace)
-                            for trigger_idx in example]
-            trigger_labels_with_spans = bio_tags_to_spans(trigger_tags)
-            trigger_spans = [(t[1][0], t[1][1] + 1) for t in trigger_labels_with_spans]
-            batch_trigger_spans.append(trigger_spans)
-
-        return batch_trigger_spans
 
     @staticmethod
     def _assert_target_seq_len(seq_len, target):
