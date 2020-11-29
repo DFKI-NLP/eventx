@@ -21,10 +21,9 @@ class ExperimentalAce2005Reader(DatasetReader):
     @overrides
     def _read(self, file_path: str) -> Iterable[Instance]:
         with open(file_path) as f:
-            for line in f.readlines():
-                example = json.loads(line)
+            for example in json.load(f):
                 words = example['words']
-                entities = example['entities']
+                entities = example['golden-entity-mentions']
 
                 # If no entities are found the model can not learn anything from this instance,
                 # so skip it
