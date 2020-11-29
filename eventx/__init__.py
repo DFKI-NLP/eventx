@@ -1,5 +1,6 @@
 NEGATIVE_TRIGGER_LABEL = 'O'
 NEGATIVE_ARGUMENT_LABEL = 'no_arg'
+NEGATIVE_ENTITY_LABEL = 'O'
 SD4M_RELATION_TYPES = ['Accident', 'CanceledRoute', 'CanceledStop', 'Delay',
                        'Obstruction', 'RailReplacementService', 'TrafficJam',
                        NEGATIVE_TRIGGER_LABEL]
