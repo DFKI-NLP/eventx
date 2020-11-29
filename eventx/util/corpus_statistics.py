@@ -85,6 +85,63 @@ def has_events(doc, include_negatives=False):
     return False
 
 
+def has_multiple_events(doc, include_negatives=False):
+    """
+    Parameters
+    ----------
+    doc: Document
+    include_negatives: Count document as having events when at least one trigger is not an abstain
+
+    Returns
+    -------
+    Whether the document contains multiple (positive) events
+    """
+    if 'events' in doc and len(doc['events']) > 1:
+        return True
+    elif 'event_triggers' in doc and doc['event_triggers']:
+        trigger_probs = np.asarray(
+            [trigger['event_type_probs'] for trigger in doc['event_triggers']]
+        )
+        if include_negatives:
+            return trigger_probs.sum() > 0.0
+        labeled_triggers = trigger_probs.sum(axis=1) > 0.0
+        trigger_labels = trigger_probs[labeled_triggers].argmax(axis=1)
+        events_positives = [label < len(SD4M_RELATION_TYPES)-1 for label in trigger_labels]
+        if np.asarray(events_positives).sum() > 1:
+            return True
+    return False
+
+
+def has_multiple_same_events(doc, include_negatives=False):
+    """
+    Parameters
+    ----------
+    doc: Document
+    include_negatives: Count document as having events when at least one trigger is not an abstain
+
+    Returns
+    -------
+    Whether the document contains multiple (positive) events of the same type
+    """
+    if 'events' in doc and len(doc['events']) > 1:
+        event_types = [event['event_type'] for event in doc['events']]
+        uniques, counts = np.unique(event_types, return_counts=True)
+        return any(count > 1 for count in counts)
+    elif 'event_triggers' in doc and doc['event_triggers']:
+        trigger_probs = np.asarray(
+            [trigger['event_type_probs'] for trigger in doc['event_triggers']]
+        )
+        if include_negatives:
+            return trigger_probs.sum() > 0.0
+        labeled_triggers = trigger_probs.sum(axis=1) > 0.0
+        trigger_labels = trigger_probs[labeled_triggers].argmax(axis=1)
+        events_positives = [label < len(SD4M_RELATION_TYPES)-1 for label in trigger_labels]
+        trigger_labels_np = np.asarray(trigger_labels)[events_positives]
+        uniques, counts = np.unique(trigger_labels_np, return_counts=True)
+        return any(count > 1 for count in counts)
+    return False
+
+
 def has_roles(doc, include_negatives=False):
     """
     Parameters
@@ -127,6 +184,10 @@ def get_snorkel_event_stats(dataset: pd.DataFrame):
     trigger_probs = np.asarray([trigger['event_type_probs'] for triggers in event_doc_triggers
                                 for trigger in triggers])
     docs_with_events = sum(dataset.apply(lambda document: has_events(document), axis=1))
+    docs_with_multiple_events = sum(
+        dataset.apply(lambda document: has_multiple_events(document), axis=1))
+    docs_with_multiple_events_same_type = sum(
+        dataset.apply(lambda document: has_multiple_same_events(document), axis=1))
     labeled_triggers = trigger_probs.sum(axis=-1) > 0.0
     trigger_a = len(trigger_probs) - sum(labeled_triggers)
     trigger_labels = trigger_probs[labeled_triggers].argmax(axis=-1)
@@ -151,6 +212,9 @@ def get_snorkel_event_stats(dataset: pd.DataFrame):
     return {
         "# Docs": len(dataset),
         "# Docs with event triggers": docs_with_events,
+        "# Docs with multiple event triggers": docs_with_multiple_events,
+        "# Docs with multiple event triggers with same type": docs_with_multiple_events_same_type,
+        "Average events per document": trigger_p/len(dataset),
         "# Event triggers with positive label": trigger_p,
         "# Event triggers with negative label": trigger_n,
         "# Event triggers with abstain": trigger_a,
@@ -196,9 +260,18 @@ def get_event_stats(dataset: pd.DataFrame):
             docs_with_events += 1
         if has_annotated_roles:
             docs_with_roles += 1
+
+    docs_with_multiple_events = sum(
+        dataset.apply(lambda document: has_multiple_events(document), axis=1))
+    docs_with_multiple_events_same_type = sum(
+        dataset.apply(lambda document: has_multiple_same_events(document), axis=1))
+
     return {
         "# Docs": len(dataset),
         "# Docs with event triggers": docs_with_events,
+        "# Docs with multiple event triggers": docs_with_multiple_events,
+        "# Docs with multiple event triggers with same type": docs_with_multiple_events_same_type,
+        "Average events per document": num_event_triggers / len(dataset),
         "# Event triggers": num_event_triggers,
         "Trigger class frequencies": trigger_class_freqs,
         "# Docs with event roles": docs_with_roles,
