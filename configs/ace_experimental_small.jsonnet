@@ -55,17 +55,18 @@ local encoder_hidden_dim = 50;
     }
   },
   "iterator": {
-    "type": "basic",
-    "batch_size": 20,
+    "type": "bucket",
+    "batch_size": 32,
+    "sorting_keys": [["tokens", "num_tokens"]],
   },
   "trainer": {
     "optimizer": {
       "type": "adam",
       "lr": 1e-3,
     },
-    "patience": 10,
+    "patience": 20,
     "cuda_device": std.parseInt(std.extVar("ALLENNLP_DEVICE")),
-    "validation_metric": "-loss",
+    "validation_metric": "+role_f1",
     "num_epochs": 100,
     "grad_clipping": 5.0,
   },

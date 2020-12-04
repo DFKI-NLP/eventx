@@ -117,7 +117,7 @@ class ExperimentalAceModel(Model):
         ########################################
 
         # Extract the spans of the encoded entities
-        entity_spans_mask = (entity_spans[:, :, 0] >= 0).squeeze(-1).long()
+        entity_spans_mask = (entity_spans[:, :, 0] >= 0).long()
         encoded_entities = self.span_extractor(sequence_tensor=encoded_input,
                                                span_indices=entity_spans,
                                                sequence_mask=text_mask,
