@@ -25,20 +25,13 @@ class ExperimentalAce2005Reader(DatasetReader):
                 words = example['words']
                 entities = example['golden-entity-mentions']
 
-                # If no entities are found the model can not learn anything from this instance,
-                # so skip it
-                if len(entities) == 0:
-                    continue
-
                 entity_spans = []
-                # entity_labels = []
                 ner_tags = [NEGATIVE_ENTITY_LABEL] * len(words)
 
                 for entity in entities:
                     entity_span = (entity['start'], entity['end'])
                     entity_spans.append(entity_span)
                     entity_label = entity['entity-type']
-                    # entity_labels.append(entity_label)
                     for idx in range(entity['start'], entity['end']):
                         # Encode triggers with IOB2 encoding scheme
                         if idx == entity['start']:
@@ -48,8 +41,11 @@ class ExperimentalAce2005Reader(DatasetReader):
 
                 events = example['golden-event-mentions']
                 trigger_labels = [NEGATIVE_TRIGGER_LABEL] * len(words)
-                arg_role_labels = [[NEGATIVE_ARGUMENT_LABEL for _ in range(len(entity_spans))]
-                                   for _ in range(len(words))]
+                if len(entity_spans) > 0:
+                    arg_role_labels = [[NEGATIVE_ARGUMENT_LABEL for _ in range(len(entity_spans))]
+                                       for _ in range(len(words))]
+                else:
+                    arg_role_labels = None
 
                 for event in events:
                     trigger = event['trigger']
@@ -75,7 +71,6 @@ class ExperimentalAce2005Reader(DatasetReader):
 
                 yield self.text_to_instance(tokens=words,
                                             ner_tags=ner_tags,
-                                            # entity_labels=entity_labels,
                                             entity_spans=entity_spans,
                                             trigger_labels=trigger_labels,
                                             arg_role_labels=arg_role_labels)
@@ -89,17 +84,23 @@ class ExperimentalAce2005Reader(DatasetReader):
                          trigger_labels: Optional[List[str]] = None,
                          arg_role_labels: Optional[List[List[str]]] = None
                          ) -> Instance:
-        assert len(entity_spans) > 0, 'Examples without entities are not supported'
 
         text_field = TextField([Token(t) for t in tokens], token_indexers=self._token_indexers)
-        entity_spans_field = ListField([
-            SpanField(span_start=span[0], span_end=span[1] - 1, sequence_field=text_field)
-            for span in entity_spans
-        ])
-        # entity_labels_field = ListField([
-        #     LabelField(label=entity_label, label_namespace='entity_labels')
-        #     for entity_label in entity_labels
-        # ])
+
+        # These are required by allennlp for empty list fields
+        # see: https://github.com/allenai/allennlp/issues/1391
+        dummy_arg_roles_field = ListField([ListField([
+            LabelField(label='a', label_namespace='arg_role_labels')
+        ])])
+        dummy_span_list_field = ListField([SpanField(0, 0, text_field)])
+
+        if len(entity_spans) > 0:
+            entity_spans_field = ListField([
+                SpanField(span_start=span[0], span_end=span[1] - 1, sequence_field=text_field)
+                for span in entity_spans
+            ])
+        else:
+            entity_spans_field = dummy_span_list_field.empty_field()
         entity_tags_field = SequenceLabelField(labels=ner_tags,
                                                sequence_field=text_field,
                                                label_namespace='entity_tags')
@@ -107,7 +108,6 @@ class ExperimentalAce2005Reader(DatasetReader):
         fields: Dict[str, Field] = {
             'metadata': MetadataField({"words": tokens}),
             'tokens': text_field,
-            # 'entity_labels': entity_labels_field,
             'entity_tags': entity_tags_field,
             'entity_spans': entity_spans_field,
         }
@@ -127,5 +127,7 @@ class ExperimentalAce2005Reader(DatasetReader):
                 for token_role_labels in arg_role_labels
             ])
             fields['arg_roles'] = arg_role_labels_field
+        else:
+            fields['arg_roles'] = dummy_arg_roles_field.empty_field()
 
         return Instance(fields)
