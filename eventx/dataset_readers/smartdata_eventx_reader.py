@@ -1,4 +1,5 @@
 import json
+import io
 from typing import Iterable, Dict, List, Optional, Tuple
 
 from allennlp.data import DatasetReader, Instance, Token, TokenIndexer, Field
@@ -20,7 +21,7 @@ class SmartdataEventxReader(DatasetReader):
 
     @overrides
     def _read(self, file_path: str) -> Iterable[Instance]:
-        with open(file_path) as f:
+        with io.open(file_path, 'r', encoding='utf-8') as f:
             for line in f.readlines():
                 example = json.loads(line)
 
