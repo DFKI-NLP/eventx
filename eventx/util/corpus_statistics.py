@@ -99,12 +99,13 @@ def has_triggers(doc):
     return any(entity['entity_type'] == 'trigger' for entity in entities)
 
 
-def has_events(doc, include_negatives=False):
+def has_events(doc, include_negatives=False, relation_types=SD4M_RELATION_TYPES):
     """
     Parameters
     ----------
     doc: Document
     include_negatives: Count document as having events when at least one trigger is not an abstain
+    relation_types: Types of relations (SD4M, SDW, ...)
 
     Returns
     -------
@@ -122,17 +123,18 @@ def has_events(doc, include_negatives=False):
             return trigger_probs.sum() > 0.0
         labeled_triggers = trigger_probs.sum(axis=1) > 0.0
         trigger_labels = trigger_probs[labeled_triggers].argmax(axis=1)
-        if any(label < len(SD4M_RELATION_TYPES)-1 for label in trigger_labels):
+        if any(label < len(relation_types) - 1 for label in trigger_labels):
             return True
     return False
 
 
-def has_multiple_events(doc, include_negatives=False):
+def has_multiple_events(doc, include_negatives=False, relation_types=SD4M_RELATION_TYPES):
     """
     Parameters
     ----------
     doc: Document
     include_negatives: Count document as having events when at least one trigger is not an abstain
+    relation_types: Types of relations (SD4M, SDW)
 
     Returns
     -------
@@ -150,18 +152,19 @@ def has_multiple_events(doc, include_negatives=False):
             return trigger_probs.sum() > 0.0
         labeled_triggers = trigger_probs.sum(axis=1) > 0.0
         trigger_labels = trigger_probs[labeled_triggers].argmax(axis=1)
-        events_positives = [label < len(SD4M_RELATION_TYPES)-1 for label in trigger_labels]
+        events_positives = [label < len(relation_types) - 1 for label in trigger_labels]
         if np.asarray(events_positives).sum() > 1:
             return True
     return False
 
 
-def has_multiple_same_events(doc, include_negatives=False):
+def has_multiple_same_events(doc, include_negatives=False, relation_types=SD4M_RELATION_TYPES):
     """
     Parameters
     ----------
     doc: Document
     include_negatives: Count document as having events when at least one trigger is not an abstain
+    relation_types: Types of relations (SD4M, SDW, ...)
 
     Returns
     -------
@@ -183,19 +186,20 @@ def has_multiple_same_events(doc, include_negatives=False):
             return trigger_probs.sum() > 0.0
         labeled_triggers = trigger_probs.sum(axis=1) > 0.0
         trigger_labels = trigger_probs[labeled_triggers].argmax(axis=1)
-        events_positives = [label < len(SD4M_RELATION_TYPES)-1 for label in trigger_labels]
+        events_positives = [label < len(relation_types) - 1 for label in trigger_labels]
         trigger_labels_np = np.asarray(trigger_labels)[events_positives]
         uniques, counts = np.unique(trigger_labels_np, return_counts=True)
         return any(count > 1 for count in counts)
     return False
 
 
-def has_roles(doc, include_negatives=False):
+def has_roles(doc, include_negatives=False, role_classes=ROLE_LABELS):
     """
     Parameters
     ----------
     doc: Document
     include_negatives: Count document as having roles when at least one role is not an abstain
+    role_classes: Role classes to use (SD4M, SDW, ...)
 
     Returns
     -------
@@ -213,21 +217,22 @@ def has_roles(doc, include_negatives=False):
             return role_probs.sum() > 0.0
         labeled_roles = role_probs.sum(axis=1) > 0.0
         role_labels = role_probs[labeled_roles].argmax(axis=1)
-        if any(label < len(ROLE_LABELS)-1 for label in role_labels):
+        if any(label < len(role_classes) - 1 for label in role_labels):
             return True
     return False
 
 
-def get_snorkel_event_stats(dataset: pd.DataFrame):
+def get_snorkel_event_stats(dataset: pd.DataFrame, relation_types=SD4M_RELATION_TYPES,
+                            role_classes=ROLE_LABELS):
     # Positive (Labeled positive vs. Abstains+negative), Documents, DataPoints
     assert 'event_triggers' in dataset and 'event_roles' in dataset
     event_doc_triggers = list(dataset['event_triggers'])
     event_doc_roles = list(dataset['event_roles'])
     trigger_class_freqs = {}
-    for trigger_class in SD4M_RELATION_TYPES:
+    for trigger_class in relation_types:
         trigger_class_freqs[trigger_class] = 0
     role_class_freqs = {}
-    for role_class in ROLE_LABELS:
+    for role_class in role_classes:
         role_class_freqs[role_class] = 0
     # Positive, Negative, Abstain
 
@@ -243,7 +248,7 @@ def get_snorkel_event_stats(dataset: pd.DataFrame):
     trigger_labels = trigger_probs[labeled_triggers].argmax(axis=-1)
     unique, counts = np.unique(trigger_labels, return_counts=True)
     for u, c in zip(unique, counts):
-        trigger_class_freqs[SD4M_RELATION_TYPES[u]] = c
+        trigger_class_freqs[relation_types[u]] = c
     trigger_n = trigger_class_freqs[NEGATIVE_TRIGGER_LABEL]
     trigger_p = len(trigger_probs) - trigger_a - trigger_n
 
@@ -255,7 +260,7 @@ def get_snorkel_event_stats(dataset: pd.DataFrame):
     role_labels = role_probs[labeled_roles].argmax(axis=-1)
     unique, counts = np.unique(role_labels, return_counts=True)
     for u, c in zip(unique, counts):
-        role_class_freqs[ROLE_LABELS[u]] = c
+        role_class_freqs[role_classes[u]] = c
     role_n = role_class_freqs[NEGATIVE_ARGUMENT_LABEL]
     role_p = len(role_probs) - role_a - role_n
 
@@ -264,7 +269,7 @@ def get_snorkel_event_stats(dataset: pd.DataFrame):
         "# Docs with event triggers": docs_with_events,
         "# Docs with multiple event triggers": docs_with_multiple_events,
         "# Docs with multiple event triggers with same type": docs_with_multiple_events_same_type,
-        "Average events per document": trigger_p/len(dataset),
+        "Average events per document": trigger_p / len(dataset),
         "# Event triggers with positive label": trigger_p,
         "# Event triggers with negative label": trigger_n,
         "# Event triggers with abstain": trigger_a,
@@ -277,7 +282,8 @@ def get_snorkel_event_stats(dataset: pd.DataFrame):
     }
 
 
-def get_event_stats(dataset: pd.DataFrame):
+def get_event_stats(dataset: pd.DataFrame, relation_types=SD4M_RELATION_TYPES,
+                    role_classes=ROLE_LABELS):
     if 'event_triggers' in dataset and 'event_roles' in dataset:
         return get_snorkel_event_stats(dataset)
     assert 'events' in dataset
@@ -286,10 +292,10 @@ def get_event_stats(dataset: pd.DataFrame):
     num_event_triggers = 0
     num_event_roles = 0
     trigger_class_freqs = {}
-    for trigger_class in SD4M_RELATION_TYPES:
+    for trigger_class in relation_types:
         trigger_class_freqs[trigger_class] = 0
     role_class_freqs = {}
-    for role_class in ROLE_LABELS:
+    for role_class in role_classes:
         role_class_freqs[role_class] = 0
 
     doc_events = list(dataset['events'])
@@ -298,12 +304,12 @@ def get_event_stats(dataset: pd.DataFrame):
         has_annotated_roles = False
         for event in events:
             trigger_class_freqs[event['event_type']] += 1
-            if event['event_type'] in SD4M_RELATION_TYPES[:-1]:
+            if event['event_type'] in relation_types[:-1]:
                 num_event_triggers += 1
                 has_annotated_events = True
                 for arg in event['arguments']:
                     role_class_freqs[arg['role']] += 1
-                    if arg['role'] in ROLE_LABELS[:-1]:
+                    if arg['role'] in role_classes[:-1]:
                         num_event_roles += 1
                         has_annotated_roles = True
         if has_annotated_events:

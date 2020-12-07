@@ -14,7 +14,8 @@ from allennlp.common import JsonDict
 from eventx.predictors.predictor_utils import load_predictor
 from eventx.models.model_utils import batched_predict_json
 from eventx.util import scorer
-from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
+from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, SDW_RELATION_TYPES, SDW_ROLE_LABELS,\
+    NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 logger = logging.getLogger('eventx')
 logger.setLevel(level=logging.INFO)
@@ -139,7 +140,8 @@ def get_label_arrays(gold_docs, predicted_docs):
 
 def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
                           predictor_name="snorkel-eventx-predictor", events_key="events",
-                          include_class_metrics=True):
+                          include_class_metrics=True, relation_types=SD4M_RELATION_TYPES,
+                          role_classes=ROLE_LABELS):
     trigger_id_metrics = []
     trigger_class_metrics = []
     argument_id_metrics = []
@@ -191,7 +193,7 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
     if include_class_metrics:
         trigger_metrics += [
             (trigger_label, collect_values(trigger_label, trigger_class_metrics))
-            for trigger_label in SD4M_RELATION_TYPES[:-1]]
+            for trigger_label in relation_types[:-1]]
     trigger_metrics = dict(trigger_metrics)
 
     argument_metrics = [('Argument identification',
@@ -201,7 +203,7 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
     if include_class_metrics:
         argument_metrics += [
             (role_label, collect_values(role_label, argument_class_metrics))
-            for role_label in ROLE_LABELS[:-1]]
+            for role_label in role_classes[:-1]]
     argument_metrics = dict(argument_metrics)
 
     return trigger_metrics, argument_metrics
