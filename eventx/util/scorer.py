@@ -302,13 +302,14 @@ def score_files(pred_file_path, gold_file_path, ignore_args=False, ignore_span=F
                            output_string=output_string)
 
 
-def get_triggers(documents: List[Union[Dict, Instance]]):
+def get_triggers(documents: List[Union[Dict, Instance]], events_key: str = 'events'):
     """
     Retrieves triggers from list of documents
 
     Parameters
     ----------
     documents: List of documents containing events
+    events_key: Key for event mentions in document
 
     Returns
     -------
@@ -318,19 +319,20 @@ def get_triggers(documents: List[Union[Dict, Instance]]):
     """
     triggers = []
     for doc_idx, doc in enumerate(documents):
-        for event in doc['events']:
+        for event in doc[events_key]:
             trigger = event['trigger']
             triggers.append((doc_idx, trigger['start'], trigger['end'], event['event_type']))
     return triggers
 
 
-def get_arguments(documents: List[Union[Dict, Instance]]):
+def get_arguments(documents: List[Union[Dict, Instance]], events_key: str = 'events'):
     """
     Retrieves arguments from list of documents
 
     Parameters
     ----------
     documents: List of documents containing events
+    events_key: Key for event mentions in document
 
     Returns
     -------
@@ -340,7 +342,7 @@ def get_arguments(documents: List[Union[Dict, Instance]]):
     """
     arguments = []
     for doc_idx, doc in enumerate(documents):
-        for event in doc['events']:
+        for event in doc[events_key]:
             trigger = event['trigger']
             for arg in event['arguments']:
                 arguments.append((doc_idx,

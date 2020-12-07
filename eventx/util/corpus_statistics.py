@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
+from eventx.util import scorer
 
 
 def is_rss(doc_id: str):
@@ -17,7 +18,7 @@ def is_twitter(doc_id: str):
 
 def get_docs_tokens_entities_triggers(dataset: pd.DataFrame):
     """
-    Retrieves numbers about the dataset
+    Retrieves numbers about the Smartdata/Daystream dataset
 
     Parameters
     ----------
@@ -42,6 +43,45 @@ def get_docs_tokens_entities_triggers(dataset: pd.DataFrame):
         "# Tokens": num_of_tokens,
         "# Entities": num_of_entities,
         "# Triggers": num_of_triggers
+    }
+
+
+def get_docs_tokens_entities_events(dataset: pd.DataFrame):
+    """
+    Retrieves numbers about the dataset for ACE
+
+    Parameters
+    ----------
+    dataset
+
+    Returns
+    -------
+    Counts for documents, tokens, entities, triggers
+    """
+    num_of_docs = len(dataset)
+    num_of_tokens = 0
+    for doc_tokens in dataset['words']:
+        num_of_tokens += len(doc_tokens)
+    num_of_entities = 0
+    num_of_triggers = 0
+    num_of_arguments = 0
+    num_of_unique_triggers = 0
+    for doc_entities in dataset['golden-entity-mentions']:
+        num_of_entities += len(doc_entities)
+    for doc_events in dataset['golden-event-mentions']:
+        num_of_triggers += len(doc_events)
+        doc_triggers = [(event['trigger']['start'], event['trigger']['end'])
+                        for event in doc_events]
+        num_of_unique_triggers += len(set(doc_triggers))
+        doc_args = [len(event['arguments']) for event in doc_events]
+        num_of_arguments += sum(doc_args)
+    return {
+        "# Sentences": num_of_docs,
+        "# Tokens": num_of_tokens,
+        "# Entities": num_of_entities,
+        "# Triggers": num_of_triggers,
+        "# Unique Triggers": num_of_unique_triggers,
+        "# Arguments": num_of_arguments
     }
 
 
@@ -72,6 +112,8 @@ def has_events(doc, include_negatives=False):
     """
     if 'events' in doc and doc['events']:
         return True
+    elif 'golden-event-mentions' in doc and doc['golden-event-mentions']:
+        return True
     elif 'event_triggers' in doc and doc['event_triggers']:
         trigger_probs = np.asarray(
             [trigger['event_type_probs'] for trigger in doc['event_triggers']]
@@ -97,6 +139,8 @@ def has_multiple_events(doc, include_negatives=False):
     Whether the document contains multiple (positive) events
     """
     if 'events' in doc and len(doc['events']) > 1:
+        return True
+    elif 'golden-event-mentions' in doc and len(doc['golden-event-mentions']) > 1:
         return True
     elif 'event_triggers' in doc and doc['event_triggers']:
         trigger_probs = np.asarray(
@@ -127,6 +171,10 @@ def has_multiple_same_events(doc, include_negatives=False):
         event_types = [event['event_type'] for event in doc['events']]
         uniques, counts = np.unique(event_types, return_counts=True)
         return any(count > 1 for count in counts)
+    elif 'golden-event-mentions' in doc and len(doc['golden-event-mentions']) > 1:
+        event_types = [event['event_type'] for event in doc['golden-event-mentions']]
+        uniques, counts = np.unique(event_types, return_counts=True)
+        return any(count > 1 for count in counts)
     elif 'event_triggers' in doc and doc['event_triggers']:
         trigger_probs = np.asarray(
             [trigger['event_type_probs'] for trigger in doc['event_triggers']]
@@ -154,7 +202,9 @@ def has_roles(doc, include_negatives=False):
     Whether the document contains any (positive) roles
     """
     if 'events' in doc and doc['events']:
-        return True
+        return any(len(event['arguments']) > 0 for event in doc['events'])
+    elif 'golden-event-mentions' in doc and doc['golden-event-mentions']:
+        return any(len(event['arguments']) > 0 for event in doc['golden-event-mentions'])
     elif 'event_roles' in doc and doc['event_roles']:
         role_probs = np.asarray(
             [role['event_argument_probs'] for role in doc['event_roles']]
@@ -271,10 +321,46 @@ def get_event_stats(dataset: pd.DataFrame):
         "# Docs with event triggers": docs_with_events,
         "# Docs with multiple event triggers": docs_with_multiple_events,
         "# Docs with multiple event triggers with same type": docs_with_multiple_events_same_type,
-        "Average events per document": num_event_triggers / len(dataset),
+        "Average events per sentence": num_event_triggers / len(dataset),
         "# Event triggers": num_event_triggers,
         "Trigger class frequencies": trigger_class_freqs,
         "# Docs with event roles": docs_with_roles,
+        "# Event roles": num_event_roles,
+        "Role class frequencies": role_class_freqs
+    }
+
+
+def get_ace_event_stats(dataset: pd.DataFrame):
+    ace_triggers = scorer.get_triggers(dataset.to_dict('records'), 'golden-event-mentions')
+    ace_arguments = scorer.get_arguments(dataset.to_dict('records'), 'golden-event-mentions')
+    num_event_triggers = len(ace_triggers)
+    num_unique_event_triggers = len(set(ace_triggers))
+    num_event_roles = len(ace_arguments)
+    docs_with_events = sum(
+        dataset.apply(lambda document: has_events(document), axis=1))
+    docs_with_multiple_events = sum(
+        dataset.apply(lambda document: has_multiple_events(document), axis=1))
+    docs_with_multiple_events_same_type = sum(
+        dataset.apply(lambda document: has_multiple_same_events(document), axis=1))
+    docs_with_roles = sum(
+        dataset.apply(lambda document: has_roles(document), axis=1))
+    event_types = [ace_trigger[3] for ace_trigger in ace_triggers]
+    uniques, counts = np.unique(event_types, return_counts=True)
+    trigger_class_freqs = dict(zip(uniques, counts))
+    arg_roles = [ace_arg[6] for ace_arg in ace_arguments]
+    uniques, counts = np.unique(arg_roles, return_counts=True)
+    role_class_freqs = dict(zip(uniques, counts))
+    return {
+        "# Sentences": len(dataset),
+        "# Sentences with event triggers": docs_with_events,
+        "# Sentences with multiple event triggers": docs_with_multiple_events,
+        "# Sentences with multiple event triggers with same type":
+            docs_with_multiple_events_same_type,
+        "Average events per sentence": num_event_triggers / len(dataset),
+        "# Event triggers": num_event_triggers,
+        "# Unique Event triggers": num_unique_event_triggers,
+        "Trigger class frequencies": trigger_class_freqs,
+        "# Sentences with event roles": docs_with_roles,
         "# Event roles": num_event_roles,
         "Role class frequencies": role_class_freqs
     }
