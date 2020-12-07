@@ -3,6 +3,7 @@ import json
 import io
 import logging
 import copy
+import traceback
 from typing import List
 
 import numpy as np
@@ -137,20 +138,22 @@ def get_label_arrays(gold_docs, predicted_docs):
 
 
 def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
-                          predictor_name="snorkel-eventx-predictor"):
+                          predictor_name="snorkel-eventx-predictor", events_key="events",
+                          include_class_metrics=True):
     trigger_id_metrics = []
     trigger_class_metrics = []
     argument_id_metrics = []
     argument_class_metrics = []
 
-    gold_triggers = scorer.get_triggers(test_docs)
-    gold_arguments = scorer.get_arguments(test_docs)
+    gold_triggers = scorer.get_triggers(test_docs, events_key)
+    gold_arguments = scorer.get_arguments(test_docs, events_key)
     if remove_duplicates:
         # Remove duplicates that are due to events sharing the same trigger
         gold_triggers = list(set(gold_triggers))
         gold_arguments = list(set(gold_arguments))
-    logging.info(f'Collecting metrics for the {len(model_paths)} models')
-    for model_path in model_paths:
+    logger.info(f'Collecting metrics for the {len(model_paths)} models')
+    for idx, model_path in enumerate(model_paths):
+        logger.info(f'Working on {idx+1}. model.')
         try:
             predictor = load_predictor(model_dir=model_path, predictor_name=predictor_name)
             predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
@@ -162,17 +165,20 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
                 scorer.get_trigger_identification_metrics(gold_triggers, predicted_triggers)
             )
             trigger_class_metrics.append(
-                scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers)
+                scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers,
+                                                          include_class_metrics=include_class_metrics)
             )
             argument_id_metrics.append(
                 scorer.get_argument_identification_metrics(gold_arguments, predicted_arguments)
             )
             argument_class_metrics.append(
-                scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments)
+                scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments,
+                                                          include_class_metrics=include_class_metrics)
             )
         except KeyError as err:
-            logger.warning(f'The model {model_path} encountered an OOV error ({err}). '
+            logger.warning(f'The model {model_path} encountered an error ({err}). '
                            f'Skip and continue.')
+            logger.warning(traceback.format_exc())
     trigger_id_metrics = pd.DataFrame(trigger_id_metrics)
     trigger_class_metrics = pd.DataFrame(trigger_class_metrics)
     argument_id_metrics = pd.DataFrame(argument_id_metrics)
@@ -182,18 +188,20 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
                         collect_values('Trigger identification', trigger_id_metrics)),
                        ('Trigger classification',
                         collect_values('Trigger classification', trigger_class_metrics))]
-    trigger_metrics += [
-        (trigger_label, collect_values(trigger_label, trigger_class_metrics))
-        for trigger_label in SD4M_RELATION_TYPES[:-1]]
+    if include_class_metrics:
+        trigger_metrics += [
+            (trigger_label, collect_values(trigger_label, trigger_class_metrics))
+            for trigger_label in SD4M_RELATION_TYPES[:-1]]
     trigger_metrics = dict(trigger_metrics)
 
     argument_metrics = [('Argument identification',
                          collect_values('Argument identification', argument_id_metrics)),
                         ('Argument classification',
                          collect_values('Argument classification', argument_class_metrics))]
-    argument_metrics += [
-        (role_label, collect_values(role_label, argument_class_metrics))
-        for role_label in ROLE_LABELS[:-1]]
+    if include_class_metrics:
+        argument_metrics += [
+            (role_label, collect_values(role_label, argument_class_metrics))
+            for role_label in ROLE_LABELS[:-1]]
     argument_metrics = dict(argument_metrics)
 
     return trigger_metrics, argument_metrics

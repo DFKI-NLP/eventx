@@ -437,7 +437,7 @@ def get_trigger_identification_metrics(gold_triggers: List[Tuple], pred_triggers
 
 
 def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers: List[Tuple],
-                                       output_string=False):
+                                       output_string=False, include_class_metrics=True):
     """
     Gets metrics for trigger classification. A trigger is correct
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -448,6 +448,7 @@ def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers
     output_string: Whether to print a formatted string of the classification report
     gold_triggers: Gold triggers with document idx, trigger spans & type
     pred_triggers: Predicted triggers with document idx, trigger spans & type
+    include_class_metrics: Include metric for classes (only compatible with SD4M for now)
 
     Returns
     -------
@@ -456,10 +457,12 @@ def get_trigger_classification_metrics(gold_triggers: List[Tuple], pred_triggers
     """
     micro_avg = calc_metric(gold_triggers, pred_triggers)
     classification_report = {'Trigger classification': micro_avg}
-    classification_report.update(get_metrics_by_class(gold_triggers, pred_triggers))
+    categories = ['Trigger classification']
+    if include_class_metrics:
+        classification_report.update(get_metrics_by_class(gold_triggers, pred_triggers))
+        categories += SD4M_RELATION_TYPES[:-1]
     if output_string:
-        print(prettify_classification_report(
-            classification_report, ['Trigger classification']+SD4M_RELATION_TYPES[:-1]))
+        print(prettify_classification_report(classification_report, categories))
     return classification_report
 
 
@@ -494,7 +497,7 @@ def get_argument_identification_metrics(gold_arguments: List[Tuple], pred_argume
 
 
 def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_arguments: List[Tuple],
-                                        output_string=False):
+                                        output_string=False, include_class_metrics=True):
     """
     Gets metrics for argument classification. An argument is classified correctly
     according to Ji and Grishman, 2008 (https://www.aclweb.org/anthology/P08-1030.pdf)
@@ -506,6 +509,7 @@ def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_argume
     output_string: Whether to print a formatted string of the classification report
     gold_arguments: Gold arguments with document idx, trigger spans & type, arg spans & type
     pred_arguments: Predicted arguments with document idx, trigger spans & type, arg spans & type
+    include_class_metrics: Include metric for classes (only compatible with SD4M for now)
 
     Returns
     -------
@@ -514,8 +518,10 @@ def get_argument_classification_metrics(gold_arguments: List[Tuple], pred_argume
     """
     micro_avg = calc_metric(gold_arguments, pred_arguments)
     classification_report = {'Argument classification': micro_avg}
-    classification_report.update(get_metrics_by_class(gold_arguments, pred_arguments))
+    categories = ['Argument classification']
+    if include_class_metrics:
+        classification_report.update(get_metrics_by_class(gold_arguments, pred_arguments))
+        categories += ROLE_LABELS[:-1]
     if output_string:
-        print(prettify_classification_report(
-            classification_report, ['Argument classification']+ROLE_LABELS[:-1]))
+        print(prettify_classification_report(classification_report, categories))
     return classification_report
