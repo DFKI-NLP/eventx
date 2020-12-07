@@ -5,6 +5,7 @@ from typing import Dict, List, Any
 
 from allennlp.predictors import Predictor
 from allennlp.data import Instance
+from tqdm import tqdm
 
 
 def batched_predict_json(
@@ -12,7 +13,7 @@ def batched_predict_json(
         examples: List[Dict[str, Any]],
         batch_size: int = 16) -> List[Dict[str, Any]]:
     results = []  # type: List[Dict[str, Any]]
-    for i in range(0, len(examples), batch_size):
+    for i in tqdm(range(0, len(examples), batch_size)):
         batch_examples = examples[i: i + batch_size]
         batch_results = predictor.predict_batch_json(batch_examples)
         results.extend(batch_results)
@@ -24,7 +25,7 @@ def batched_predict_instances(
         examples: List[Instance],
         batch_size: int = 16) -> List[Dict[str, Any]]:
     results = []  # type: List[Dict[str, Any]]
-    for i in range(0, len(examples), batch_size):
+    for i in tqdm(range(0, len(examples), batch_size)):
         batch_examples = examples[i: i + batch_size]
         batch_results = predictor.predict_batch_instance(batch_examples)
         results.extend(batch_results)

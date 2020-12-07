@@ -144,7 +144,7 @@ class ExperimentalAceModel(Model):
         output_dict['role_probabilities'] = role_probabilities
 
         # Compute loss and metrics using the given role labels
-        if arg_roles is not None:
+        if arg_roles is not None and (arg_roles != -1).sum() > 0:
             arg_roles = self._assert_target_seq_len(seq_len=embedded_tokens.shape[1],
                                                     target=arg_roles)
             target_mask = (arg_roles != -1)
@@ -167,26 +167,42 @@ class ExperimentalAceModel(Model):
         if metadata is not None:
             output_dict["words"] = [x["words"] for x in metadata]
 
+        # Append the trigger and entity spans to reconstruct the event after prediction
+        output_dict['entity_spans'] = entity_spans
+
         return output_dict
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        trigger_predictions = output_dict['trigger_probabilities'].cpu().data.numpy()
-        trigger_tags = [
-            [self.vocab.get_token_from_index(trigger_idx, namespace=self._triggers_namespace)
-             for trigger_idx in example]
-            for example in np.argmax(trigger_predictions, axis=-1)
-        ]
+        trigger_probabilities = output_dict['trigger_probabilities'].cpu().data.numpy()
+        trigger_predictions = np.argmax(trigger_probabilities, axis=-1)
+        trigger_tags = []
+        for batch_idx in range(len(trigger_predictions)):
+            # Based on number of words get rid of trigger padding in batches
+            words = output_dict['words'][batch_idx]
+            trigger_tags.append([
+                self.vocab.get_token_from_index(trigger_idx, namespace=self._triggers_namespace)
+                for trigger_idx in trigger_predictions[batch_idx][:len(words)]
+            ])
+
         output_dict['trigger_tags'] = trigger_tags
         # Convert to trigger labels with inclusive spans: Tuple[str, Tuple[int, int]]
         trigger_labels = [bio_tags_to_spans(example) for example in trigger_tags]
 
-        arg_role_predictions = output_dict['role_logits'].cpu().data.numpy()
-        arg_role_labels = [
-            [[self.vocab.get_token_from_index(role_idx, namespace=self._roles_namespace)
-              for role_idx in event]
-             for event in example]
-            for example in np.argmax(arg_role_predictions, axis=-1)]
+        arg_role_probabilities = output_dict['role_logits'].cpu().data.numpy()
+        arg_role_predictions = np.argmax(arg_role_probabilities, axis=-1)
+
+        arg_role_labels = []
+        for batch_idx in range(len(arg_role_predictions)):
+            # Based on number of words and entities get rid of arg role padding in batches
+            words = output_dict['words'][batch_idx]
+            entity_spans = [entity_span for entity_span in output_dict['entity_spans'][batch_idx]
+                            if entity_span[0] > -1]
+            arg_role_labels.append([
+                [self.vocab.get_token_from_index(role_idx, namespace=self._roles_namespace)
+                 for role_idx in event[:len(entity_spans)]]
+                for event in arg_role_predictions[batch_idx][:len(words)]]
+            )
         output_dict['role_labels'] = arg_role_labels
 
         events = []
@@ -210,9 +226,10 @@ class ExperimentalAceModel(Model):
                 }
                 # Group role labels by predicted trigger, sum and argmax to extract role label
                 # in case of multi token trigger
-                for entity_idx, role_probs in enumerate(
-                    arg_role_predictions[batch_idx][trigger_start:trigger_end]):
-                    role_idx = role_probs.sum(axis=0).argmax()
+                rel_arg_role_probs = arg_role_probabilities[batch_idx][trigger_start:trigger_end]\
+                    .sum(axis=0)
+                for entity_idx, role_probs in enumerate(rel_arg_role_probs):
+                    role_idx = role_probs.argmax()
                     role_label = self.vocab.get_token_from_index(role_idx,
                                                                  namespace=self._roles_namespace)
                     if role_label == NEGATIVE_ARGUMENT_LABEL:
@@ -227,8 +244,9 @@ class ExperimentalAceModel(Model):
                         'role': role_label
                     }
                     event['arguments'].append(argument)
-                if len(event['arguments']) > 0:
-                    batch_events.append(event)
+                # if len(event['arguments']) > 0:
+                #     batch_events.append(event)
+                batch_events.append(event)
             events.append(batch_events)
         output_dict['events'] = events
 
