@@ -14,7 +14,7 @@ from allennlp.common import JsonDict
 from eventx.predictors.predictor_utils import load_predictor
 from eventx.models.model_utils import batched_predict_json
 from eventx.util import scorer
-from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, SDW_RELATION_TYPES, SDW_ROLE_LABELS,\
+from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, SDW_RELATION_TYPES, SDW_ROLE_LABELS, \
     NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 logger = logging.getLogger('eventx')
@@ -155,7 +155,7 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
         gold_arguments = list(set(gold_arguments))
     logger.info(f'Collecting metrics for the {len(model_paths)} models')
     for idx, model_path in enumerate(model_paths):
-        logger.info(f'Working on {idx+1}. model.')
+        logger.info(f'Working on {idx + 1}. model.')
         try:
             predictor = load_predictor(model_dir=model_path, predictor_name=predictor_name)
             predicted_docs = batched_predict_json(predictor=predictor, examples=test_docs)
@@ -195,9 +195,12 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
                        ('Trigger classification',
                         collect_values('Trigger classification', trigger_class_metrics))]
     if include_class_metrics:
+        considered_rel_types = relation_types[:-1]  # Do not consider negative class
+        considered_rel_types = [rel_type for rel_type in considered_rel_types
+                                if rel_type in trigger_class_metrics]
         trigger_metrics += [
             (trigger_label, collect_values(trigger_label, trigger_class_metrics))
-            for trigger_label in relation_types[:-1]]
+            for trigger_label in considered_rel_types]
     trigger_metrics = dict(trigger_metrics)
 
     argument_metrics = [('Argument identification',
@@ -205,9 +208,12 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
                         ('Argument classification',
                          collect_values('Argument classification', argument_class_metrics))]
     if include_class_metrics:
+        considered_role_labels = role_classes[:-1]  # Do not consider negative class
+        considered_role_labels = [role_label for role_label in considered_role_labels
+                                  if role_label in argument_class_metrics]
         argument_metrics += [
             (role_label, collect_values(role_label, argument_class_metrics))
-            for role_label in role_classes[:-1]]
+            for role_label in considered_role_labels]
     argument_metrics = dict(argument_metrics)
 
     return trigger_metrics, argument_metrics

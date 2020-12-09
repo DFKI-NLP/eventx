@@ -206,6 +206,8 @@ class SmartdataEventxModel(Model):
                 trigger_span = output_dict['trigger_spans'][batch_idx][trigger_idx]
                 trigger_start = trigger_span[0].item()
                 trigger_end = trigger_span[1].item() + 1
+                if trigger_start < 0:
+                    continue
                 event = {
                     'event_type': trigger_label,
                     'trigger': {
@@ -221,6 +223,8 @@ class SmartdataEventxModel(Model):
                     arg_span = output_dict['entity_spans'][batch_idx][entity_idx]
                     arg_start = arg_span[0].item()
                     arg_end = arg_span[1].item() + 1
+                    if arg_start < 0:
+                        continue
                     argument = {
                         'text': " ".join(words[arg_start:arg_end]),
                         'start': arg_start,
