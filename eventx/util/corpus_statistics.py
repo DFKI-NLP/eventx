@@ -4,7 +4,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
+from eventx import SD4M_RELATION_TYPES, ROLE_LABELS, SDW_RELATION_TYPES, SDW_ROLE_LABELS,\
+    NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 from eventx.util import scorer
 
 
@@ -287,6 +288,11 @@ def get_event_stats(dataset: pd.DataFrame, relation_types=SD4M_RELATION_TYPES,
     if 'event_triggers' in dataset and 'event_roles' in dataset:
         return get_snorkel_event_stats(dataset)
     assert 'events' in dataset
+    triggers = scorer.get_triggers(dataset.to_dict('records'))
+    argument_roles = scorer.get_arguments(dataset.to_dict('records'))
+    num_event_triggers_tuple = len(triggers)
+    num_unique_event_triggers = len(set(triggers))
+    num_event_roles_tuple = len(argument_roles)
     docs_with_events = 0
     docs_with_roles = 0
     num_event_triggers = 0
@@ -316,7 +322,8 @@ def get_event_stats(dataset: pd.DataFrame, relation_types=SD4M_RELATION_TYPES,
             docs_with_events += 1
         if has_annotated_roles:
             docs_with_roles += 1
-
+    assert num_event_triggers == num_event_triggers_tuple
+    assert num_event_roles == num_event_roles_tuple
     docs_with_multiple_events = sum(
         dataset.apply(lambda document: has_multiple_events(document), axis=1))
     docs_with_multiple_events_same_type = sum(
@@ -327,8 +334,9 @@ def get_event_stats(dataset: pd.DataFrame, relation_types=SD4M_RELATION_TYPES,
         "# Docs with event triggers": docs_with_events,
         "# Docs with multiple event triggers": docs_with_multiple_events,
         "# Docs with multiple event triggers with same type": docs_with_multiple_events_same_type,
-        "Average events per sentence": num_event_triggers / len(dataset),
+        "Average events per document": num_event_triggers / len(dataset),
         "# Event triggers": num_event_triggers,
+        "# Unique Event triggers": num_unique_event_triggers,
         "Trigger class frequencies": trigger_class_freqs,
         "# Docs with event roles": docs_with_roles,
         "# Event roles": num_event_roles,
@@ -343,13 +351,18 @@ def get_ace_event_stats(dataset: pd.DataFrame):
     num_unique_event_triggers = len(set(ace_triggers))
     num_event_roles = len(ace_arguments)
     docs_with_events = sum(
-        dataset.apply(lambda document: has_events(document), axis=1))
+        dataset.apply(
+            lambda document: has_events(document, relation_types=SDW_RELATION_TYPES), axis=1))
     docs_with_multiple_events = sum(
-        dataset.apply(lambda document: has_multiple_events(document), axis=1))
+        dataset.apply(
+            lambda document: has_multiple_events(document, relation_types=SDW_RELATION_TYPES),
+            axis=1))
     docs_with_multiple_events_same_type = sum(
-        dataset.apply(lambda document: has_multiple_same_events(document), axis=1))
+        dataset.apply(
+            lambda document: has_multiple_same_events(document, relation_types=SDW_RELATION_TYPES),
+            axis=1))
     docs_with_roles = sum(
-        dataset.apply(lambda document: has_roles(document), axis=1))
+        dataset.apply(lambda document: has_roles(document, role_classes=SDW_ROLE_LABELS), axis=1))
     event_types = [ace_trigger[3] for ace_trigger in ace_triggers]
     uniques, counts = np.unique(event_types, return_counts=True)
     trigger_class_freqs = dict(zip(uniques, counts))

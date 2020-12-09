@@ -164,18 +164,22 @@ def summize_multiple_runs(model_paths, test_docs, remove_duplicates=True,
             predicted_arguments = scorer.get_arguments(predicted_docs)
 
             trigger_id_metrics.append(
-                scorer.get_trigger_identification_metrics(gold_triggers, predicted_triggers)
+                scorer.get_trigger_identification_metrics(
+                    gold_triggers, predicted_triggers)
             )
             trigger_class_metrics.append(
-                scorer.get_trigger_classification_metrics(gold_triggers, predicted_triggers,
-                                                          include_class_metrics=include_class_metrics)
+                scorer.get_trigger_classification_metrics(
+                    gold_triggers, predicted_triggers,
+                    include_class_metrics=include_class_metrics, labels=relation_types
+                )
             )
             argument_id_metrics.append(
                 scorer.get_argument_identification_metrics(gold_arguments, predicted_arguments)
             )
             argument_class_metrics.append(
-                scorer.get_argument_classification_metrics(gold_arguments, predicted_arguments,
-                                                          include_class_metrics=include_class_metrics)
+                scorer.get_argument_classification_metrics(
+                    gold_arguments, predicted_arguments,
+                    include_class_metrics=include_class_metrics, labels=role_classes)
             )
         except KeyError as err:
             logger.warning(f'The model {model_path} encountered an error ({err}). '
