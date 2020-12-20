@@ -15,6 +15,7 @@ from overrides import overrides
 from torch.nn import Linear, Parameter
 
 from eventx.util import MicroFBetaMeasure
+from eventx.util.loss import cross_entropy_focal_loss
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 
@@ -156,10 +157,10 @@ class EventxModel(Model):
 
             # Masked batch-wise cross entropy loss, optionally with focal-loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)
-            role_loss = self._cross_entropy_focal_loss(logits=role_logits_t,
-                                                       target=target,
-                                                       target_mask=target_mask,
-                                                       gamma=self.role_gamma)
+            role_loss = cross_entropy_focal_loss(logits=role_logits_t,
+                                                 target=target,
+                                                 target_mask=target_mask,
+                                                 gamma=self.role_gamma)
 
             output_dict['role_loss'] = role_loss
             output_dict['loss'] += self.loss_weight * role_loss
@@ -279,20 +280,3 @@ class EventxModel(Model):
                                         dtype=target.dtype,
                                         device=target.device)
             return torch.cat([target, padding_tensor], dim=1)
-
-    @staticmethod
-    def _cross_entropy_focal_loss(logits, target, target_mask, gamma=None) -> torch.Tensor:
-        if gamma:
-            log_probs = torch.log_softmax(logits, dim=1)
-            true_probs = log_probs.gather(dim=1, index=target.unsqueeze(1)).exp()
-            true_probs = true_probs.view(*target.size())
-            focal_factor = (1.0 - true_probs) ** gamma
-            loss_unreduced = F.nll_loss(log_probs, target, reduction='none')
-            loss_unreduced *= focal_factor
-        else:
-            loss_unreduced = F.cross_entropy(logits, target, reduction='none')
-        masked_loss = loss_unreduced * target_mask
-        batch_size = target.size(0)
-        loss_per_batch = masked_loss.view(batch_size, -1).sum(dim=1)
-        mask_per_batch = target_mask.view(batch_size, -1).sum()
-        return (loss_per_batch / mask_per_batch).sum() / batch_size

@@ -31,6 +31,7 @@ class SnorkelEventxModel(Model):
                  loss_weight: float = 1.0,
                  trigger_gamma: float = None,
                  role_gamma: float = None,
+                 positive_class_weight: float = 1.0,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: RegularizerApplicator = None) -> None:
         super().__init__(vocab=vocab, regularizer=regularizer)
@@ -70,6 +71,10 @@ class SnorkelEventxModel(Model):
                                          labels=evaluated_role_idxs)
         self.role_classes_f1 = MicroFBetaMeasure(average=None,
                                                  labels=evaluated_role_idxs)
+
+        # Trigger class weighting as done in JMEE repo
+        self.trigger_class_weights = torch.ones(len(SD4M_RELATION_TYPES)) * positive_class_weight
+        self.trigger_class_weights[trigger_labels_to_idx[NEGATIVE_TRIGGER_LABEL]] = 1.0
         initializer(self)
 
     @overrides
@@ -121,7 +126,8 @@ class SnorkelEventxModel(Model):
             trigger_logits_t = trigger_logits.permute(0, 2, 1)
             trigger_loss = self._cross_entropy_loss(logits=trigger_logits_t,
                                                     target=trigger_labels,
-                                                    target_mask=trigger_mask)
+                                                    target_mask=trigger_mask,
+                                                    weight=self.trigger_class_weights)
 
             output_dict["triggers_loss"] = trigger_loss
             output_dict["loss"] = trigger_loss
@@ -283,8 +289,8 @@ class SnorkelEventxModel(Model):
             return new_target
 
     @staticmethod
-    def _cross_entropy_loss(logits, target, target_mask) -> torch.Tensor:
-        loss_unreduced = cross_entropy_with_probs(logits, target, reduction="none")
+    def _cross_entropy_loss(logits, target, target_mask, weight) -> torch.Tensor:
+        loss_unreduced = cross_entropy_with_probs(logits, target, reduction="none", weight=weight)
         masked_loss = loss_unreduced * target_mask
         batch_size = target.size(0)
         loss_per_batch = masked_loss.view(batch_size, -1).sum(dim=1)

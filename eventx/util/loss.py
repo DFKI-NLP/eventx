@@ -6,6 +6,23 @@ import torch.nn.functional as F
 Outputs = Mapping[str, List[torch.Tensor]]
 
 
+def cross_entropy_focal_loss(logits, target, target_mask, gamma=None, weight=None) -> torch.Tensor:
+    if gamma:
+        log_probs = torch.log_softmax(logits, dim=1)
+        true_probs = log_probs.gather(dim=1, index=target.unsqueeze(1)).exp()
+        true_probs = true_probs.view(*target.size())
+        focal_factor = (1.0 - true_probs) ** gamma
+        loss_unreduced = F.nll_loss(log_probs, target, reduction='none', weight=weight)
+        loss_unreduced *= focal_factor
+    else:
+        loss_unreduced = F.cross_entropy(logits, target, reduction='none', weight=weight)
+    masked_loss = loss_unreduced * target_mask
+    batch_size = target.size(0)
+    loss_per_batch = masked_loss.view(batch_size, -1).sum(dim=1)
+    mask_per_batch = target_mask.view(batch_size, -1).sum()
+    return (loss_per_batch / mask_per_batch).sum() / batch_size
+
+
 def cross_entropy_with_probs(
     input: torch.Tensor,
     target: torch.Tensor,

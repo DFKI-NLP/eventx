@@ -15,6 +15,7 @@ from overrides import overrides
 from torch.nn import Linear, Parameter
 
 from eventx.util import MicroFBetaMeasure
+from eventx.util.loss import cross_entropy_focal_loss
 from eventx import NEGATIVE_TRIGGER_LABEL, NEGATIVE_ARGUMENT_LABEL
 
 
@@ -32,6 +33,7 @@ class ExperimentalAceModel(Model):
                  loss_weight: float = 1.0,
                  trigger_gamma: float = None,
                  role_gamma: float = None,
+                 positive_class_weight: float = 1.0,
                  triggers_namespace: str = 'trigger_labels',
                  roles_namespace: str = 'arg_role_labels',
                  initializer: InitializerApplicator = InitializerApplicator(),
@@ -71,6 +73,11 @@ class ExperimentalAceModel(Model):
         self.role_accuracy = CategoricalAccuracy()
         self.role_f1 = MicroFBetaMeasure(average='micro',  # Macro averaging in get_metrics
                                          labels=evaluated_role_idxs)
+        # Trigger class weighting as done in JMEE repo
+        trigger_labels_to_idx = self.vocab\
+            .get_token_to_index_vocabulary(namespace=triggers_namespace)
+        self.trigger_class_weights = torch.ones(len(trigger_labels_to_idx)) * positive_class_weight
+        self.trigger_class_weights[trigger_labels_to_idx[NEGATIVE_TRIGGER_LABEL]] = 1.0
         initializer(self)
 
     @overrides
@@ -108,7 +115,8 @@ class ExperimentalAceModel(Model):
             loss = sequence_cross_entropy_with_logits(logits=trigger_logits,
                                                       targets=triggers,
                                                       weights=text_mask,
-                                                      gamma=self.trigger_gamma)
+                                                      gamma=self.trigger_gamma,
+                                                      alpha=self.trigger_class_weights)
             output_dict["triggers_loss"] = loss
             output_dict["loss"] = loss
 
@@ -155,10 +163,10 @@ class ExperimentalAceModel(Model):
 
             # Masked batch-wise cross entropy loss, optionally with focal-loss
             role_logits_t = role_logits.permute(0, 3, 1, 2)
-            role_loss = self._cross_entropy_focal_loss(logits=role_logits_t,
-                                                       target=target,
-                                                       target_mask=target_mask,
-                                                       gamma=self.role_gamma)
+            role_loss = cross_entropy_focal_loss(logits=role_logits_t,
+                                                 target=target,
+                                                 target_mask=target_mask,
+                                                 gamma=self.role_gamma)
 
             output_dict['role_loss'] = role_loss
             output_dict['loss'] += self.loss_weight * role_loss
@@ -226,7 +234,7 @@ class ExperimentalAceModel(Model):
                 }
                 # Group role labels by predicted trigger, sum and argmax to extract role label
                 # in case of multi token trigger
-                rel_arg_role_probs = arg_role_probabilities[batch_idx][trigger_start:trigger_end]\
+                rel_arg_role_probs = arg_role_probabilities[batch_idx][trigger_start:trigger_end] \
                     .sum(axis=0)
                 for entity_idx, role_probs in enumerate(rel_arg_role_probs):
                     role_idx = role_probs.argmax()
@@ -278,20 +286,3 @@ class ExperimentalAceModel(Model):
                                         dtype=target.dtype,
                                         device=target.device)
             return torch.cat([target, padding_tensor], dim=1)
-
-    @staticmethod
-    def _cross_entropy_focal_loss(logits, target, target_mask, gamma=None) -> torch.Tensor:
-        if gamma:
-            log_probs = torch.log_softmax(logits, dim=1)
-            true_probs = log_probs.gather(dim=1, index=target.unsqueeze(1)).exp()
-            true_probs = true_probs.view(*target.size())
-            focal_factor = (1.0 - true_probs) ** gamma
-            loss_unreduced = F.nll_loss(log_probs, target, reduction='none')
-            loss_unreduced *= focal_factor
-        else:
-            loss_unreduced = F.cross_entropy(logits, target, reduction='none')
-        masked_loss = loss_unreduced * target_mask
-        batch_size = target.size(0)
-        loss_per_batch = masked_loss.view(batch_size, -1).sum(dim=1)
-        mask_per_batch = target_mask.view(batch_size, -1).sum()
-        return (loss_per_batch / mask_per_batch).sum() / batch_size
