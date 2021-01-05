@@ -15,6 +15,7 @@ Loosely based on the paper "Jointly Multiple Events Extraction via Attention-bas
 ### Preprocess the data
 Download the preprocssed SD4M+Daystream data from 
 [https://cloud.dfki.de/owncloud/index.php/s/ykyWcJyHfAExLci](https://cloud.dfki.de/owncloud/index.php/s/ykyWcJyHfAExLci).
+And extract it into the data directory.
 
 ### Train the models
 In order to train the different models you can use the [scripts](scripts) in the repository.
@@ -26,7 +27,7 @@ You may need to adjust the configuration file, the training & development data p
 
 E.g. to train a single model:
 ```
-./scripts/train_eventx_snorkel.sh
+./scripts/train_eventx_snorkel.sh data/training_run_1
 ```
 In order to recreate the models in our main experiments, you need to run [random_repeats.sh](scripts/random_repeats.sh) with
 

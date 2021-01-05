@@ -65,7 +65,7 @@ local encoder_hidden_dim = 300;
   "trainer": {
     "optimizer": {
       "type": "adam",
-      "lr": std.parseInt(std.extVar("LEARNING_RATE")),
+      "lr": std.extVar("LEARNING_RATE"),
     },
     "num_serialized_models_to_keep": 1,
     "patience": 20,

@@ -289,7 +289,7 @@ class SnorkelEventxModel(Model):
             return new_target
 
     @staticmethod
-    def _cross_entropy_loss(logits, target, target_mask, weight) -> torch.Tensor:
+    def _cross_entropy_loss(logits, target, target_mask, weight=None) -> torch.Tensor:
         loss_unreduced = cross_entropy_with_probs(logits, target, reduction="none", weight=weight)
         masked_loss = loss_unreduced * target_mask
         batch_size = target.size(0)
