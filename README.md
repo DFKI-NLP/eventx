@@ -29,8 +29,11 @@ E.g. to train a single model:
 ```
 ./scripts/train_eventx_snorkel.sh data/training_run_1
 ```
-In order to recreate the models in our main experiments, you need to run [random_repeats.sh](scripts/random_repeats.sh) with
+
+In order to recreate the models in our main experiments, you need to run [random_repeats.sh](scripts/random_repeats.sh).
 
 For our other experiments, you need to run [increasing_train_data.sh](scripts/increasing_train_data.sh) (Increasing Daystream
 training data) and 
 [mlv_run.sh](scripts/mlv_run.sh) (Majority Label Voter).
+
+For convenience we provide the trained event extraction model for the setup with the merged training set (manual annotation + annotation with the Snorkel approach):  [https://cloud.dfki.de/owncloud/index.php/s/EnHA2zgJS8PWdLq](https://cloud.dfki.de/owncloud/index.php/s/EnHA2zgJS8PWdLq)
