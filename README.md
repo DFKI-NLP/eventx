@@ -14,7 +14,7 @@ Loosely based on the paper "Jointly Multiple Events Extraction via Attention-bas
 
 ### Preprocess the data
 Download the preprocssed SD4M+Daystream data from 
-[https://cloud.dfki.de/owncloud/index.php/s/ykyWcJyHfAExLci](https://cloud.dfki.de/owncloud/index.php/s/ykyWcJyHfAExLci).
+[https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/Ecl1cWZlZVZNg844cZPUdOgB3MGjIapyeCGyDfpx_kylUw](https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/Ecl1cWZlZVZNg844cZPUdOgB3MGjIapyeCGyDfpx_kylUw&Web=0&Download=1).
 And extract it into the data directory.
 
 ### Train the models
@@ -36,4 +36,4 @@ For our other experiments, you need to run [increasing_train_data.sh](scripts/in
 training data) and 
 [mlv_run.sh](scripts/mlv_run.sh) (Majority Label Voter).
 
-For convenience we provide the trained event extraction model for the setup with the merged training set (manual annotation + annotation with the Snorkel approach):  [https://cloud.dfki.de/owncloud/index.php/s/EnHA2zgJS8PWdLq](https://cloud.dfki.de/owncloud/index.php/s/EnHA2zgJS8PWdLq)
+For convenience we provide the trained event extraction model for the setup with the merged training set (manual annotation + annotation with the Snorkel approach):  [https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/ESEeQWkkzRlKpPl95e8HSeEBJdl1W9N2e4d246onXQmJiQ](https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/ESEeQWkkzRlKpPl95e8HSeEBJdl1W9N2e4d246onXQmJiQ?Web=0&Download=1)
