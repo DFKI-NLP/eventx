@@ -14,7 +14,7 @@ Loosely based on the paper "Jointly Multiple Events Extraction via Attention-bas
 
 ### Preprocess the data
 Download the preprocssed SD4M+Daystream data from 
-[https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/Ecl1cWZlZVZNg844cZPUdOgB3MGjIapyeCGyDfpx_kylUw](https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/Ecl1cWZlZVZNg844cZPUdOgB3MGjIapyeCGyDfpx_kylUw&Web=0&Download=1).
+[https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/Ecl1cWZlZVZNg844cZPUdOgB3MGjIapyeCGyDfpx_kylUw](https://dfkide-my.sharepoint.com/:u:/g/personal/lehe02_dfki_de/Ecl1cWZlZVZNg844cZPUdOgB3MGjIapyeCGyDfpx_kylUw?Web=0&Download=1).
 And extract it into the data directory.
 
 ### Train the models
